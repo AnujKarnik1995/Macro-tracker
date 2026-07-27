@@ -71,7 +71,7 @@ object ChartRenderer {
         val footerH = avail * 0.070f   // page dots + refresh button
         val ringsH = avail - ribbonH - todayHdrH - bulletsH - legendH - dividerH - weekHdrH - footerH
 
-        val titleSize = clamp(todayHdrH * 0.76f, 24f, 70f)
+        val titleSize = clamp(todayHdrH * 0.76f, 24f, 70f) * 0.95f // header dialed 5% smaller
         val weekTitleSize = clamp(weekHdrH * 0.70f, 22f, 60f)
         val subSize = clamp(todayHdrH * 0.46f, 14f, 34f)
         val labelSize = clamp((bulletsH / ORDER.size) * 0.52f, 20f, 60f)

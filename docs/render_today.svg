@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="560" viewBox="0 0 420 560" font-family="-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
+<rect x="0" y="0" width="420" height="560" rx="34" ry="34" fill="#1C1C1E"/>
+<rect x="18.9" y="16.3" width="185.4" height="42.1" rx="21.0" fill="#14241F"/>
+<rect x="19.6" y="17.1" width="183.9" height="40.6" rx="21.0" fill="none" stroke="#1D9E75" stroke-width="2.1"/>
+<text x="111.6" y="44.1" fill="#FFFFFF" font-size="19.3" font-weight="600" text-anchor="middle">✓ 34 / 43</text>
+<rect x="215.7" y="16.3" width="185.4" height="42.1" rx="21.0" fill="#15202E"/>
+<rect x="216.4" y="17.1" width="183.9" height="40.6" rx="21.0" fill="none" stroke="#3C6FA5" stroke-width="2.1"/>
+<text x="308.4" y="44.1" fill="#FFFFFF" font-size="19.3" font-weight="600" text-anchor="middle">72 d → Oct 7</text>
+<text x="210.0" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="middle">·</text>
+<text x="199.3" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="end">Cutting Phase</text>
+<text x="220.7" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="start">Today</text>
+<text x="18.9" y="128.7" fill="#FFFFFF" font-size="20.3">Cals</text>
+<rect x="73.8" y="112.6" width="266.3" height="18.0" rx="9.0" fill="#2B2B2B"/>
+<rect x="261.7" y="112.6" width="9.4" height="18.0" fill="#15CF92" opacity="0.235"/>
+<rect x="73.8" y="112.6" width="234.9" height="18.0" rx="9.0" fill="#FF4D4F"/>
+<rect x="269.9" y="107.2" width="2.4" height="28.8" fill="#E2E6EA"/>
+<text x="271.1" y="104.5" fill="#AAB6C2" font-size="11.8" text-anchor="middle">≤2100</text>
+<text x="401.1" y="128.1" fill="#D6D6D6" font-size="19.1" text-anchor="end">2500</text>
+<text x="18.9" y="167.8" fill="#FFFFFF" font-size="20.3">Pro</text>
+<rect x="73.8" y="151.7" width="266.3" height="18.0" rx="9.0" fill="#2B2B2B"/>
+<rect x="237.2" y="151.7" width="33.8" height="18.0" fill="#15CF92" opacity="0.235"/>
+<rect x="73.8" y="151.7" width="178.1" height="18.0" rx="9.0" fill="#15CF92"/>
+<rect x="269.9" y="146.3" width="2.4" height="28.8" fill="#E2E6EA"/>
+<text x="271.1" y="143.6" fill="#AAB6C2" font-size="11.8" text-anchor="middle">≤175</text>
+<text x="401.1" y="167.2" fill="#D6D6D6" font-size="19.1" text-anchor="end">158g</text>
+<text x="18.9" y="206.9" fill="#FFFFFF" font-size="20.3">Carb</text>
+<rect x="73.8" y="190.8" width="266.3" height="18.0" rx="9.0" fill="#2B2B2B"/>
+<rect x="228.2" y="190.8" width="42.9" height="18.0" fill="#15CF92" opacity="0.235"/>
+<rect x="73.8" y="190.8" width="120.1" height="18.0" rx="9.0" fill="#D0B81D"/>
+<rect x="269.9" y="185.4" width="2.4" height="28.8" fill="#E2E6EA"/>
+<text x="271.1" y="182.7" fill="#AAB6C2" font-size="11.8" text-anchor="middle">≤230</text>
+<text x="401.1" y="206.3" fill="#D6D6D6" font-size="19.1" text-anchor="end">140g</text>
+<text x="18.9" y="246.0" fill="#FFFFFF" font-size="20.3">Fat</text>
+<rect x="73.8" y="229.9" width="266.3" height="18.0" rx="9.0" fill="#2B2B2B"/>
+<rect x="210.4" y="229.9" width="60.7" height="18.0" fill="#15CF92" opacity="0.235"/>
+<rect x="73.8" y="229.9" width="85.0" height="18.0" rx="9.0" fill="#DB6059"/>
+<rect x="269.9" y="224.5" width="2.4" height="28.8" fill="#E2E6EA"/>
+<text x="271.1" y="221.8" fill="#AAB6C2" font-size="11.8" text-anchor="middle">≤65</text>
+<text x="401.1" y="245.4" fill="#D6D6D6" font-size="19.1" text-anchor="end">28g</text>
+<text x="18.9" y="277.8" fill="#9AA0A6" font-size="20.0">under</text>
+<text x="401.1" y="277.8" fill="#9AA0A6" font-size="20.0" text-anchor="end">over</text>
+<defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="0">
+<stop offset="0%" stop-color="#FF4D4F"/>
+<stop offset="25%" stop-color="#FFB300"/>
+<stop offset="50%" stop-color="#15CF92"/>
+<stop offset="75%" stop-color="#FFB300"/>
+<stop offset="100%" stop-color="#FF4D4F"/>
+</linearGradient></defs>
+<rect x="72.8" y="266.6" width="274.4" height="8.4" fill="url(#lg)"/>
+<line x1="18.9" y1="289.7" x2="401.1" y2="289.7" stroke="#2B2B2B" stroke-width="1.3"/>
+<text x="401.1" y="319.7" fill="#AAB6C2" font-size="17.4" text-anchor="end">Sun–Mon · 2 days</text>
+<text x="18.9" y="322.1" fill="#FFFFFF" font-size="24.2" font-weight="700">This week · avg</text>
+<circle cx="114.5" cy="360.0" r="27.6" fill="none" stroke="#2E3A4D" stroke-width="8.8"/>
+<circle cx="114.5" cy="360.0" r="27.6" fill="none" stroke="#1FE3A6" stroke-width="8.8" stroke-linecap="round" stroke-dasharray="170.0 173.3" transform="rotate(-90 114.5 360.0)"/>
+<text x="114.5" y="364.9" fill="#FFFFFF" font-size="14.0" font-weight="700" text-anchor="middle">2060</text>
+<text x="114.5" y="412.3" fill="#ECEFF3" font-size="19.9" text-anchor="middle">Cals</text>
+<circle cx="305.6" cy="360.0" r="27.6" fill="none" stroke="#2E3A4D" stroke-width="8.8"/>
+<circle cx="305.6" cy="360.0" r="27.6" fill="none" stroke="#1FE3A6" stroke-width="8.8" stroke-linecap="round" stroke-dasharray="166.4 173.3" transform="rotate(-90 305.6 360.0)"/>
+<text x="305.6" y="364.9" fill="#FFFFFF" font-size="14.0" font-weight="700" text-anchor="middle">168g</text>
+<text x="305.6" y="412.3" fill="#ECEFF3" font-size="19.9" text-anchor="middle">Pro</text>
+<circle cx="114.5" cy="450.6" r="27.6" fill="none" stroke="#2E3A4D" stroke-width="8.8"/>
+<circle cx="114.5" cy="450.6" r="27.6" fill="none" stroke="#A5D25C" stroke-width="8.8" stroke-linecap="round" stroke-dasharray="113.1 173.3" transform="rotate(-90 114.5 450.6)"/>
+<text x="114.5" y="455.5" fill="#FFFFFF" font-size="14.0" font-weight="700" text-anchor="middle">150g</text>
+<text x="114.5" y="502.9" fill="#ECEFF3" font-size="19.9" text-anchor="middle">Carb</text>
+<circle cx="305.6" cy="450.6" r="27.6" fill="none" stroke="#2E3A4D" stroke-width="8.8"/>
+<circle cx="305.6" cy="450.6" r="27.6" fill="none" stroke="#1FE3A6" stroke-width="8.8" stroke-linecap="round" stroke-dasharray="133.3 173.3" transform="rotate(-90 305.6 450.6)"/>
+<text x="305.6" y="455.5" fill="#FFFFFF" font-size="14.0" font-weight="700" text-anchor="middle">50g</text>
+<text x="305.6" y="502.9" fill="#ECEFF3" font-size="19.9" text-anchor="middle">Fat</text>
+<circle cx="202.9" cy="530.7" r="4.2" fill="#ECEFF3"/>
+<circle cx="217.1" cy="530.7" r="4.2" fill="#5F6468"/>
+<circle cx="382.5" cy="530.7" r="16.6" fill="#20242B"/>
+<circle cx="382.5" cy="530.7" r="16.6" fill="none" stroke="#3C6FA5" stroke-width="1.2"/>
+<text x="382.5" y="537.4" fill="#AAB6C2" font-size="19.9" text-anchor="middle">&#8635;</text>
+</svg>

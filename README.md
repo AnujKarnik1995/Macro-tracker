@@ -15,6 +15,21 @@ and shows, in one tile:
 The tile has **two views**: tap the body to cycle **Today ↔ Weight**; a small **↻ button**
 in the bottom-right corner refreshes. Two page dots show which view you're on.
 
+## Screens
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/render_today.png" width="300" alt="Today view — Cutting Phase · Today header, graded macro bullet rows, weekly rings"></td>
+    <td align="center"><img src="docs/render_weight.png" width="300" alt="Weight view — weekly-average trend with target band and daily cluster"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Page 1 · Today</b><br>streak + countdown chips, graded macro rows, weekly rings</td>
+    <td align="center"><b>Page 2 · Weight</b><br>weekly-average trend, target band, current-week weigh-ins</td>
+  </tr>
+</table>
+
+> Representative renders generated from the widget's own drawing code (vector sources in `docs/*.svg`).
+
 ### Weight view
 A weekly-average weight trend. Daily weigh-ins (from `Summary` column F) show as a faint
 cluster on the current week and consolidate into one weekly point at week's end (Sun→Sat).
