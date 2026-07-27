@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Widget title (optional)" android:textStyle="bold" android:paddingBottom="4dp" />
+    <EditText android:id="@+id/title_field" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:hint="e.g. Macros" android:inputType="text" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Log CSV URL (Date, Calories, Protein, Carbs, Fat)" android:textStyle="bold"
+        android:paddingTop="16dp" android:paddingBottom="4dp" />
+    <EditText android:id="@+id/log_field" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:hint="https://docs.google.com/.../pub?gid=0&amp;single=true&amp;output=csv"
+        android:inputType="textUri" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:text="Targets CSV URL (Macro, Lower, Upper, UnderSeverity)" android:textStyle="bold"
+        android:paddingTop="16dp" android:paddingBottom="4dp" />
+    <EditText android:id="@+id/targets_field" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:hint="https://docs.google.com/.../pub?gid=123&amp;single=true&amp;output=csv"
+        android:inputType="textUri" />
+
+    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:textSize="12sp" android:textColor="#888888" android:paddingTop="8dp"
+        android:text="In Google Sheets: File &#8594; Share &#8594; Publish to web. Publish the Log tab and the Targets tab separately as CSV, and paste both links above." />
+
+    <Button android:id="@+id/save_button" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:layout_marginTop="24dp" android:text="Save &amp; add widget" />
+</LinearLayout>
+</ScrollView>

@@ -1,0 +1,96 @@
+package com.example.macrowidget
+
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import kotlin.math.round
+
+object CsvParser {
+
+    private val dateFormats = listOf(
+        DateTimeFormatter.ISO_LOCAL_DATE,            // 2026-06-15
+        DateTimeFormatter.ofPattern("M/d/yyyy"),     // 6/15/2026
+        DateTimeFormatter.ofPattern("yyyy/M/d"),
+        DateTimeFormatter.ofPattern("d/M/yyyy")
+    )
+
+    /** Splits a CSV line, respecting double-quoted fields. */
+    private fun splitLine(line: String): List<String> {
+        val out = ArrayList<String>(); val sb = StringBuilder(); var q = false
+        for (c in line) when {
+            c == '"' -> q = !q
+            c == ',' && !q -> { out.add(sb.toString()); sb.clear() }
+            else -> sb.append(c)
+        }
+        out.add(sb.toString()); return out
+    }
+
+    private fun rows(csv: String): List<List<String>> =
+        csv.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            .map { it.trim() }.filter { it.isNotEmpty() }
+            .map { splitLine(it) }
+
+    private fun num(s: String): Float? =
+        s.trim().trim('"').replace(",", "").replace("$", "").toFloatOrNull()
+
+    private fun parseDate(s: String): LocalDate? {
+        val t = s.trim().trim('"')
+        for (f in dateFormats) try { return LocalDate.parse(t, f) } catch (_: Exception) {}
+        return null
+    }
+
+    /**
+     * Log tab. Columns by position: date, Calories, Protein, Carbs, Fat, [weight].
+     * The optional 6th column (F) is the day's body weight (kept at 0.1 lb, not rounded).
+     * First row is assumed to be a header and skipped.
+     */
+    fun parseLog(csv: String): List<LogEntry> {
+        val all = rows(csv)
+        if (all.size <= 1) return emptyList()
+        val order = listOf(MacroType.CALORIES, MacroType.PROTEIN, MacroType.CARBS, MacroType.FAT)
+        return all.drop(1).mapNotNull { cols ->
+            if (cols.size < 5) return@mapNotNull null
+            val date = parseDate(cols[0]) ?: return@mapNotNull null
+            val vals = HashMap<MacroType, Float>()
+            // Round each daily total to whole units so the band check compares at gram
+            // resolution: kills float artifacts and ignores sub-gram noise (159.9 -> 160).
+            order.forEachIndexed { i, m -> vals[m] = round(num(cols[i + 1]) ?: 0f) }
+            // Weight (col F) is optional and kept precise (0.1 lb) — the loss band is small.
+            val weight = cols.getOrNull(5)?.let { num(it) }?.takeIf { it > 0f }
+            LogEntry(date, vals, weight)
+        }
+    }
+
+    /** Weekly weight-loss target band (lb/week), from the Targets row whose name contains
+     *  "weight" (e.g. "Weight Loss, 0.7, 0.9"). Null if there's no such row. */
+    fun parseWeightTarget(csv: String): WeightTarget? {
+        val all = rows(csv)
+        if (all.size <= 1) return null
+        for (cols in all.drop(1)) {
+            if (cols.size < 3) continue
+            if (!cols[0].lowercase().contains("weight")) continue
+            val lo = num(cols[1]) ?: continue
+            val up = num(cols[2]) ?: continue
+            return WeightTarget(minOf(lo, up), maxOf(lo, up))
+        }
+        return null
+    }
+
+    /**
+     * Targets tab. Columns by position: Macro, Lower, Upper, UnderSeverity(optional).
+     * Header row skipped. Rows matched to macros by keyword, so order is flexible.
+     */
+    fun parseTargets(csv: String): Map<MacroType, Target> {
+        val all = rows(csv)
+        if (all.size <= 1) return emptyMap()
+        val map = HashMap<MacroType, Target>()
+        for (cols in all.drop(1)) {
+            if (cols.size < 3) continue
+            val macro = MacroType.fromName(cols[0]) ?: continue
+            val lower = num(cols[1]) ?: continue
+            val upper = num(cols[2]) ?: continue
+            val danger = cols.getOrNull(3)?.lowercase()?.contains("danger") == true
+            map[macro] = Target(minOf(lower, upper), maxOf(lower, upper), danger)
+        }
+        return map
+    }
+}
