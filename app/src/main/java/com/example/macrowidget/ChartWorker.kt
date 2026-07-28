@@ -59,16 +59,20 @@ class ChartWorker(context: Context, params: WorkerParameters) :
             }
 
             val entries = CsvParser.parseLog(csvs.first)
-            val targets = CsvParser.parseTargets(csvs.second)
+            val targetHistory = CsvParser.parseTargets(csvs.second)
             val weightTarget = CsvParser.parseWeightTarget(csvs.second)
             val today = LocalDate.now()
             val page = WidgetPrefs.page(applicationContext, id)
+
+            // Today's rings + the render signature use the bands in effect right now; the tally
+            // judges each past day against the band that applied on that day (frozen greens).
+            val targets = targetHistory.current(today)
 
             val daysLeft = countdownDays(today)
             val totalDays = challengeDays(today)
             val todayEntry = MacroCalculator.today(entries, today)
             val weekly = MacroCalculator.weeklyAverage(entries, today)
-            val successfulCount = MacroCalculator.successfulDays(entries, targets, today)
+            val successfulCount = MacroCalculator.successfulDays(entries, targetHistory, today)
             val weightSeries = WeightCalculator.series(entries, weightTarget, today)
 
             // Skip the re-render+push entirely when nothing that affects pixels changed

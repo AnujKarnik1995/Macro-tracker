@@ -33,13 +33,15 @@ object MacroCalculator {
 
     /**
      * Total tally of successful days across the whole log (up to and including today).
+     * Each day is judged against the target band that was in effect *on that day*
+     * ([history].asOf(date)), so past green days don't move when the targets later change.
      * Unlogged days simply aren't in [entries], so they're ignored rather than counted.
      */
     fun successfulDays(
         entries: List<LogEntry>,
-        targets: Map<MacroType, Target>,
+        history: TargetHistory,
         today: LocalDate = LocalDate.now()
-    ): Int = entries.count { !it.date.isAfter(today) && dayIsSuccessful(it, targets) }
+    ): Int = entries.count { !it.date.isAfter(today) && dayIsSuccessful(it, history.asOf(it.date)) }
 
     /**
      * Average over the current week (most recent Sunday through today, inclusive),

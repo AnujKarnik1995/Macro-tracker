@@ -76,21 +76,27 @@ object CsvParser {
     }
 
     /**
-     * Targets tab. Columns by position: Macro, Lower, Upper, UnderSeverity(optional).
-     * Header row skipped. Rows matched to macros by keyword, so order is flexible.
+     * Targets tab. Columns by position: Macro, Lower, Upper, UnderSeverity(optional),
+     * EffectiveFrom(optional, col E). Header row skipped. Rows matched to macros by keyword,
+     * so order is flexible, and a macro may appear on multiple rows with different
+     * EffectiveFrom dates — each day is later judged against the band in effect on that day.
+     * A row with no (or unparseable) EffectiveFrom defaults to [LocalDate.MIN], i.e. it always
+     * applies, so a sheet without the column behaves exactly as the old single-band version.
      */
-    fun parseTargets(csv: String): Map<MacroType, Target> {
+    fun parseTargets(csv: String): TargetHistory {
         val all = rows(csv)
-        if (all.size <= 1) return emptyMap()
-        val map = HashMap<MacroType, Target>()
+        if (all.size <= 1) return TargetHistory.EMPTY
+        val map = LinkedHashMap<MacroType, MutableList<DatedTarget>>()
         for (cols in all.drop(1)) {
             if (cols.size < 3) continue
             val macro = MacroType.fromName(cols[0]) ?: continue
             val lower = num(cols[1]) ?: continue
             val upper = num(cols[2]) ?: continue
             val danger = cols.getOrNull(3)?.lowercase()?.contains("danger") == true
-            map[macro] = Target(minOf(lower, upper), maxOf(lower, upper), danger)
+            val eff = cols.getOrNull(4)?.let { parseDate(it) } ?: LocalDate.MIN
+            val target = Target(minOf(lower, upper), maxOf(lower, upper), danger)
+            map.getOrPut(macro) { mutableListOf() }.add(DatedTarget(eff, target))
         }
-        return map
+        return TargetHistory(map)
     }
 }
