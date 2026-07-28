@@ -40,9 +40,14 @@ class SheetWidgetProvider : AppWidgetProvider() {
             // A tap doesn't blank the tile, so we don't repaint the cached frame here
             // (that only adds a flash). The worker repaints only if values changed.
             ACTION_REFRESH -> enqueue(context, intArrayOf(id), force = true)
-            ACTION_PAGE -> {
+            ACTION_PAGE_NEXT -> {
                 WidgetPrefs.setPage(context, id, (WidgetPrefs.page(context, id) + 1) % PAGE_COUNT)
                 enqueue(context, intArrayOf(id), force = true)   // re-render the new page
+            }
+            ACTION_PAGE_PREV -> {
+                // +PAGE_COUNT before modulo so page 0 wraps to the last page, not a negative.
+                WidgetPrefs.setPage(context, id, (WidgetPrefs.page(context, id) - 1 + PAGE_COUNT) % PAGE_COUNT)
+                enqueue(context, intArrayOf(id), force = true)
             }
         }
         super.onReceive(context, intent)
@@ -55,15 +60,21 @@ class SheetWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_REFRESH = "com.example.macrowidget.ACTION_REFRESH"
-        const val ACTION_PAGE = "com.example.macrowidget.ACTION_PAGE"
+        const val ACTION_PAGE_NEXT = "com.example.macrowidget.ACTION_PAGE_NEXT"
+        const val ACTION_PAGE_PREV = "com.example.macrowidget.ACTION_PAGE_PREV"
         const val PAGE_COUNT = 3                     // Today, Energy, Weight
-        private const val PAGE_REQ_OFFSET = 1_000_000  // keep page/refresh PendingIntents distinct
+        // Distinct request-code bands so refresh/prev/next PendingIntents never collapse
+        // into one another (same Intent action would otherwise be treated as equal).
+        private const val PREV_REQ_OFFSET = 1_000_000
+        private const val NEXT_REQ_OFFSET = 2_000_000
         private const val UNIQUE_WORK = "macro_refresh"
         private const val THROTTLE_MS = 1200L
 
-        /** Wire both tap targets: body (chart) cycles pages, corner refreshes. */
+        /** Wire tap targets: left half = prev page, right half = next page, corner = refresh.
+         *  refresh_hit is topmost in the layout, so a corner tap refreshes and never pages. */
         fun applyClicks(context: Context, views: RemoteViews, id: Int) {
-            views.setOnClickPendingIntent(R.id.chart_image, pagePendingIntent(context, id))
+            views.setOnClickPendingIntent(R.id.page_prev_hit, prevPendingIntent(context, id))
+            views.setOnClickPendingIntent(R.id.page_next_hit, nextPendingIntent(context, id))
             views.setOnClickPendingIntent(R.id.refresh_hit, refreshPendingIntent(context, id))
         }
 
@@ -108,8 +119,11 @@ class SheetWidgetProvider : AppWidgetProvider() {
         fun refreshPendingIntent(context: Context, id: Int): PendingIntent =
             broadcast(context, id, ACTION_REFRESH, id)
 
-        fun pagePendingIntent(context: Context, id: Int): PendingIntent =
-            broadcast(context, id, ACTION_PAGE, id + PAGE_REQ_OFFSET)
+        fun nextPendingIntent(context: Context, id: Int): PendingIntent =
+            broadcast(context, id, ACTION_PAGE_NEXT, id + NEXT_REQ_OFFSET)
+
+        fun prevPendingIntent(context: Context, id: Int): PendingIntent =
+            broadcast(context, id, ACTION_PAGE_PREV, id + PREV_REQ_OFFSET)
 
         private fun broadcast(context: Context, id: Int, action: String, requestCode: Int): PendingIntent {
             val intent = Intent(context, SheetWidgetProvider::class.java).apply {

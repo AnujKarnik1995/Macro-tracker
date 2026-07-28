@@ -24,7 +24,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
         for (id in ids) {
             val (wPx, hPx) = sizePx(mgr, id)
             val views = RemoteViews(applicationContext.packageName, R.layout.widget_chart)
-            SheetWidgetProvider.applyClicks(applicationContext, views, id)  // body=page, corner=refresh
+            SheetWidgetProvider.applyClicks(applicationContext, views, id)  // left=prev, right=next, corner=refresh
 
             val logUrl = WidgetPrefs.logUrl(applicationContext, id)
             val targetsUrl = WidgetPrefs.targetsUrl(applicationContext, id)

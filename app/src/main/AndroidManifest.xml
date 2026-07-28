@@ -15,7 +15,8 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="com.example.macrowidget.ACTION_REFRESH" />
-                <action android:name="com.example.macrowidget.ACTION_PAGE" />
+                <action android:name="com.example.macrowidget.ACTION_PAGE_NEXT" />
+                <action android:name="com.example.macrowidget.ACTION_PAGE_PREV" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"

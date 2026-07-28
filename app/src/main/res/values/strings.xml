@@ -3,4 +3,6 @@
     <string name="app_name">Macro Widget</string>
     <string name="chart_desc">Daily macros and weekly average from your Google Sheet</string>
     <string name="refresh_desc">Refresh</string>
+    <string name="page_prev_desc">Previous page</string>
+    <string name="page_next_desc">Next page</string>
 </resources>
