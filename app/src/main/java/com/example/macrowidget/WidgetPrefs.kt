@@ -34,7 +34,7 @@ object WidgetPrefs {
         prefs(context).edit().putString("sig_$id", sig).apply()
     }
 
-    /** Which view this widget is showing: 0 = Today (macros), 1 = Weight. */
+    /** Which view this widget is showing: 0 = Today (macros), 1 = Energy (burn), 2 = Weight. */
     fun page(context: Context, id: Int): Int = prefs(context).getInt("page_$id", 0)
     fun setPage(context: Context, id: Int, p: Int) {
         prefs(context).edit().putInt("page_$id", p).apply()

@@ -32,16 +32,37 @@ object MacroCalculator {
     }
 
     /**
+     * The effective band for each macro on [entry]'s day. If the row carries a per-day target
+     * center (Summary I–L), the band is that center ± the config band's half-width; otherwise it
+     * falls back to the static dated band ([history].asOf). This is how the sliding carb band takes
+     * effect while protein/fat stay put (their centers equal their static midpoints) and days with
+     * no computed targets keep the old static behavior.
+     */
+    fun effectiveTargets(entry: LogEntry, history: TargetHistory): Map<MacroType, Target> {
+        val base = history.asOf(entry.date)
+        val centers = entry.targetCenters ?: return base
+        val out = HashMap<MacroType, Target>()
+        for ((m, t) in base) {
+            val c = centers[m]
+            out[m] = if (c != null) {
+                val hw = (t.upper - t.lower) / 2f
+                Target(c - hw, c + hw, t.underDanger)
+            } else t
+        }
+        return out
+    }
+
+    /**
      * Total tally of successful days across the whole log (up to and including today).
-     * Each day is judged against the target band that was in effect *on that day*
-     * ([history].asOf(date)), so past green days don't move when the targets later change.
-     * Unlogged days simply aren't in [entries], so they're ignored rather than counted.
+     * Each day is judged against its *effective* band ([effectiveTargets]) — the per-day center
+     * where present, else the static dated band — so past green days don't move when config changes,
+     * and the sliding carb band is respected. Unlogged days aren't in [entries], so they're ignored.
      */
     fun successfulDays(
         entries: List<LogEntry>,
         history: TargetHistory,
         today: LocalDate = LocalDate.now()
-    ): Int = entries.count { !it.date.isAfter(today) && dayIsSuccessful(it, history.asOf(it.date)) }
+    ): Int = entries.count { !it.date.isAfter(today) && dayIsSuccessful(it, effectiveTargets(it, history)) }
 
     /**
      * Average over the current week (most recent Sunday through today, inclusive),

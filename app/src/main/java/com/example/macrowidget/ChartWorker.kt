@@ -71,27 +71,33 @@ class ChartWorker(context: Context, params: WorkerParameters) :
             val daysLeft = countdownDays(today)
             val totalDays = challengeDays(today)
             val todayEntry = MacroCalculator.today(entries, today)
+            // Today's rings use the per-day target band (center ± config width) when the row has
+            // computed targets, else the static current bands.
+            val todayTargets = todayEntry?.let { MacroCalculator.effectiveTargets(it, targetHistory) } ?: targets
             val weekly = MacroCalculator.weeklyAverage(entries, today)
             val successfulCount = MacroCalculator.successfulDays(entries, targetHistory, today)
             val weightSeries = WeightCalculator.series(entries, weightTarget, today)
+            val tdeeResult = TdeeCalculator.compute(entries, today)
 
             // Skip the re-render+push entirely when nothing that affects pixels changed
             // (includes the page, so a page toggle always re-renders).
-            val sig = signature(wPx, hPx, page, todayEntry, weekly, targets,
-                successfulCount, totalDays, daysLeft, weightSignature(weightSeries))
+            val sig = signature(wPx, hPx, page, todayEntry, weekly, todayTargets,
+                successfulCount, totalDays, daysLeft, weightSignature(weightSeries), energySignature(tdeeResult))
             if (sig == WidgetPrefs.signature(applicationContext, id) &&
                 BitmapCache.load(applicationContext, id) != null) {
                 continue
             }
 
-            val bmp = if (page == 1) {
-                WeightRenderer.render(weightSeries, weightTarget, page,
+            // Pages: 0 = Today (macros), 1 = Energy (burn), 2 = Weight.
+            val bmp = when (page) {
+                1 -> EnergyRenderer.render(tdeeResult, weightTarget, page,
                     SheetWidgetProvider.PAGE_COUNT, wPx, hPx)
-            } else {
-                ChartRenderer.render(
+                2 -> WeightRenderer.render(weightSeries, weightTarget, page,
+                    SheetWidgetProvider.PAGE_COUNT, wPx, hPx)
+                else -> ChartRenderer.render(
                     today = todayEntry,
                     weekly = weekly,
-                    targets = targets,
+                    targets = todayTargets,
                     successfulCount = successfulCount,
                     totalDays = totalDays,
                     daysToGoal = daysLeft,
@@ -144,7 +150,8 @@ class ChartWorker(context: Context, params: WorkerParameters) :
     /** Everything that affects the rendered pixels (both pages + which page is showing). */
     private fun signature(
         w: Int, h: Int, page: Int, today: LogEntry?, weekly: WeeklyAverage?,
-        targets: Map<MacroType, Target>, streak: Int, total: Int, daysToGoal: Int, weight: String
+        targets: Map<MacroType, Target>, streak: Int, total: Int, daysToGoal: Int,
+        weight: String, energy: String
     ): String = buildString {
         append(w).append('x').append(h).append("|p").append(page)
         append('|').append(streak).append('/').append(total).append('|').append(daysToGoal).append('|')
@@ -157,7 +164,12 @@ class ChartWorker(context: Context, params: WorkerParameters) :
         append(targets.entries.sortedBy { it.key.ordinal }
             .joinToString(",") { (m, t) -> "${m.name}:${t.lower}:${t.upper}:${t.underDanger}" })
         append('|').append(weight)
+        append('|').append(energy)
     }
+
+    /** Compact fingerprint of the energy page's data, for the render-skip signature. */
+    private fun energySignature(t: TdeeResult): String =
+        "${t.tdee}:${t.lbPerWeek}:${t.avgIntake}:${t.windowDays}:${t.collecting}:${t.daysNeeded}"
 
     /** Compact fingerprint of the weight page's data, for the render-skip signature. */
     private fun weightSignature(s: WeightSeries): String {

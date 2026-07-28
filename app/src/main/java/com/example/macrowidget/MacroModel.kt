@@ -63,11 +63,20 @@ data class TargetHistory(val byMacro: Map<MacroType, List<DatedTarget>>) {
 /** Acceptable weekly weight-loss rate band (lb/week), from the Targets "Weight" row. */
 data class WeightTarget(val lowerRate: Float, val upperRate: Float)
 
-/** One row of the daily Log. `weight` is the day's body weight (lb), null if none logged. */
+/**
+ * One row of the daily Log. `weight` is the day's body weight (lb), null if none logged.
+ * `exerciseBurn` is the day's HR-based active/exercise kcal from the watch:
+ *   null  = no watch data (not worn / not synced) — treated as missing, no delta,
+ *   0f    = worn rest day (a real zero that legitimately tightens the day's target).
+ */
 data class LogEntry(
     val date: LocalDate,
     val values: Map<MacroType, Float>,
-    val weight: Float? = null
+    val weight: Float? = null,
+    val exerciseBurn: Float? = null,
+    /** Per-day macro target CENTERS from Summary cols I–L (t_cal/t_pro/t_carb/t_fat), or null when
+     *  the row has no computed targets — the widget then falls back to the static config bands. */
+    val targetCenters: Map<MacroType, Float>? = null
 )
 
 /** Result of the weekly average computation. */

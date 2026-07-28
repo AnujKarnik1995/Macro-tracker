@@ -81,3 +81,109 @@ The app owns the data and calls out to the model — nothing external reaches in
 ## Open items to decide
 - LLM provider for the Phase 2 chat (Gemini API free tier default; Claude / OpenAI alternatives).
 - Keep a transitional AI-JSON logging path in Phase 1, or go straight to native in-app logging.
+
+---
+
+# Energy / Burn page — TDEE + watch (new workstream)
+
+Its own page: a self-calibrating burn model that (optionally) drives a constant-deficit daily
+target. Approved v-mock in chat.
+
+## Page layout (decided)
+- **Page 1 Today** — unchanged; the weekly-**average** block **stays here** (not moved/replaced).
+- **Page 2 Energy / Burn** — NEW (this workstream).
+- **Page 3 Weight** — was page 2.
+- Code: `PAGE_COUNT` 2 → 3; insert Energy renderer at index 1; Weight index 1 → 2; update
+  `ChartWorker` page routing, `WidgetPrefs` page, `SheetWidgetProvider` dots/cycle.
+
+## Confirmed scope (watch data)
+- **BMR (basal) + HR-based exercise/active burn** only. **Steps dropped** (noisy) — trust the
+  heart-rate-derived workout burn, not step counts. RHR, HRV, sleep, SpO2, skin temp also dropped.
+- Pipeline: Pixel Watch → Health Connect (on-device) → **app reads with granted permission** →
+  Apps Script → **stored column(s)** in the daily sheet (basal + exercise burn), like weight.
+  Post-migration → local-DB field. Health Connect + read permission confirmed OK.
+- Watch burn **calibrated vs back-calc TDEE** before use (Pixel Watch overestimates — established).
+
+## Data-model change (decided): limits move inline to the daily sheet
+Supersedes the separate Targets tab + `EffectiveFrom` / `TargetHistory` resolver.
+- Each **daily row stores the limits that applied that day** (cal / P / C / F). Widget reads limits
+  from the row; **daily success = row values vs that row's own stored limits** → green-days frozen
+  by construction, no date-range resolution needed.
+- A small **rules/config** stays (not per-day): protein & fat floors, target deficit (425), intake
+  floor, calibration factor, weight band. Backend uses rules + that day's TDEE/workout to **compute
+  and write** the day's limit columns (materialized output; rules are the input).
+- **Retires** `TargetHistory` / `EffectiveFrom` for macros (intent — frozen per-day limits — lives
+  on inline). One-time **backfill**: write each historical row's limits from the target in effect
+  then (from the dated Targets already set), preserving the current frozen tally.
+- Likely collapses the widget's two CSVs toward **one** (daily sheet carries data + limits; rules is
+  a tiny config) — fewer moving parts, aligns with the eventual local-DB move.
+
+## Build to-dos
+- [x] **TDEE calculator** — `TdeeCalculator.kt` built + JVM-verified (not yet wired to a page).
+      `TDEE = avg intake − (weight slope lb/day × 3500)`; trailing 28d window, **excludes today**
+      (completed days only); **least-squares regression** over weigh-ins (chosen over weekly-avg
+      endpoints — smooths water noise without picking an endpoint week); min-data guard →
+      "collecting"; outputs measured TDEE, lb/wk rate, and `intakeForRate()` for the target band.
+- [~] **Watch ingestion** — code written, **needs on-device build/test** (no SDK here). See
+      `SETUP-burn-ingestion.md`. `Code.gs` routes burn → Tracker I/J → Summary G/H (last-writer-wins);
+      `HealthConnectBurnReader.kt` (active-cals aggregate + latest BMR, null=not worn) +
+      `BurnUploadWorker.kt` (posts `{basal,burn,date}` to the existing Form). `Code.gs` syntax-checked.
+  - [ ] on-device: grant HC perms, wire the request flow into `WidgetConfigActivity`, schedule the worker
+  - [ ] calibration factor = back-calc TDEE ÷ avg watch total burn (applied to active part) — Energy-page step
+  - [ ] BMR decomposition (`TDEE = BMR + active`) so adaptation (BMR falling) is separable — Energy-page step
+- [~] **Inline-limits migration** — backend DONE + Node-verified: Apps Script computes per-day
+      target **centers** into Summary **I–L** (`updateDailyTargets`/`updateTargetsToday`, ~14:30
+      trigger via `createTargetsTrigger`). TDEE = 28-day weight-regression back-calc; carb center =
+      plug vs the calorie anchor; protein/fat centers + `Floor`/`Deficit` from the dated Targets
+      config; calories not gated. Works pre-watch (delta 0). Config: add `Floor` + `Deficit` rows.
+  - [x] **widget read** DONE + JVM-verified: `CsvParser` parses Summary I–L + burn into `LogEntry`;
+        `MacroCalculator.effectiveTargets` = per-day center ± config width, **static band fallback**
+        when I–L blank; `successfulDays` + Today rings + render signature use it (carb band slides,
+        protein/fat unchanged). `TargetHistory` **kept as the fallback + width source** (not retired —
+        past days aren't materialized, so it still judges history). Needs Android Studio build.
+- [x] **Energy page render** (page 2) — `EnergyRenderer.kt` built: TDEE hero, measured rate colored
+      vs band, 0.7–0.9 gauge + current marker, action line, "measuring" state, shared footer. Runs off
+      `TdeeCalculator` + existing intake/weight (no watch data needed yet). **Page routing wired**:
+      `ChartWorker` 3-way dispatch (0 Today / 1 Energy / 2 Weight) + energy in render signature;
+      `PAGE_COUNT` 2→3. **Needs Android Studio build** (no SDK here). Later: BMR/active split, dynamic carb band.
+- [x] **Dynamic target compute** — `DynamicTargetCalculator.kt` built + JVM-verified (logic only;
+      not wired). Revised to the banded-carbs model: protein/fat fixed two-sided bands (pass-through),
+      **carbs band slides**, calories = anchor (not gated). `LogEntry.exerciseBurn` added
+      (null = not worn, 0f = worn rest day). Success logic (`dayIsSuccessful`) unchanged.
+
+## Dynamic constant-deficit targets (design locked)
+Hold a **400–450 kcal/day deficit** by flexing intake with measured burn, so a big-workout morning
+*raises* the day's allowance instead of leaving him starving.
+- **Target = latest TDEE + workout_delta − 425**, then **floored at the current sheet limit** (~1650–1700).
+- **workout_delta = today's HR exercise burn − typical exercise burn** (delta vs the routine already
+  baked into TDEE → avoids double-counting). Steps ignored.
+- **Daily, same-day, no carryover** (no banking → no "Sunday pizza").
+- **Compute once and store at ~2–3 pm**, when premade lunch + morning workout are frozen.
+- **Band mapping (decided):** calories is **NOT** a success metric — gating it on top of three
+  macro bands over-constrains (`cal ≈ 4P+4C+9F`, 4 gates on 3 DOF → contradictions). Success stays
+  the **current protein/carbs/fat two-sided band check** (`dayIsSuccessful` unchanged).
+- Protein & fat bands **fixed/unchanged** day to day. **Carbs is the daily mover**: band center =
+  `(calorie anchor − 4·Pmid − 9·Fmid) / 4`, keeping your current carb-band width. Calories = the
+  computed **anchor** (TDEE + delta − 425, floored) that positions the carb band — context only.
+- **No hard swing cap** — user sanity-checks manually; instead **flag outlier days** so he knows to look.
+- Stored per-row (see inline-limits): only the **carb band** varies per day; protein/fat come from
+  the (dated) static bands. Frozen + re-derivable.
+
+## Delta parameters (resolved)
+1. **Baseline window = the TDEE window** (~21–28 d trailing). "Typical exercise burn" is averaged
+   over the *same* window used for the TDEE back-calc.
+2. **Calibrate the delta? Deferred.** Leave the workout delta **raw for now**; revisit after ~3 weeks
+   of observed weight fluctuation to judge whether a calibration factor is warranted.
+3. **Delta-vs-typical: confirmed.** Adjust only by (today − typical) exercise burn; never add the
+   whole workout on top of TDEE (the double-count fix).
+
+## Rest days / no-exercise (resolved)
+- **No special case in the formula.** A rest day is `E_today = 0` → `workout_delta = 0 − Ē` is
+  negative → target dips, and the intake floor catches it (rest day ≈ your normal limit).
+- **Crux — define `Ē` as the all-days average over the window (rest days counted as 0)**, NOT a
+  workout-days-only average. Keeps it consistent with TDEE (itself an all-days average): workout
+  days get the correct *positive* bump (only the above-average portion), rest days the correct
+  *negative* dip. A workout-days-only baseline would under-bump workout days and over-tighten rest days.
+- **Distinguish a true rest-day 0 from 'watch not worn / no sync'** via a wear/liveness signal (any
+  HR or BMR record that day; steps usable as liveness only). Not worn → treat as **missing** →
+  `delta = 0` → fall back to `TDEE − 425`, floored. Never let a wrist-off day falsely tighten.

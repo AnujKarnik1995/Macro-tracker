@@ -39,8 +39,9 @@ object CsvParser {
     }
 
     /**
-     * Log tab. Columns by position: date, Calories, Protein, Carbs, Fat, [weight].
-     * The optional 6th column (F) is the day's body weight (kept at 0.1 lb, not rounded).
+     * Summary tab. Columns by position:
+     *   A date, B Cal, C Protein, D Carbs, E Fat, F weight, G basal, H burn,
+     *   I t_cal, J t_pro, K t_carb, L t_fat   (per-day target centers, written by Apps Script).
      * First row is assumed to be a header and skipped.
      */
     fun parseLog(csv: String): List<LogEntry> {
@@ -56,7 +57,15 @@ object CsvParser {
             order.forEachIndexed { i, m -> vals[m] = round(num(cols[i + 1]) ?: 0f) }
             // Weight (col F) is optional and kept precise (0.1 lb) — the loss band is small.
             val weight = cols.getOrNull(5)?.let { num(it) }?.takeIf { it > 0f }
-            LogEntry(date, vals, weight)
+            // Active/exercise burn (col H) — null when blank (not worn / not posted).
+            val burn = cols.getOrNull(7)?.let { num(it) }
+            // Per-day target centers (cols I–L). Null map when none present → static-band fallback.
+            val centers = HashMap<MacroType, Float>()
+            cols.getOrNull(8)?.let { num(it) }?.let { centers[MacroType.CALORIES] = it }
+            cols.getOrNull(9)?.let { num(it) }?.let { centers[MacroType.PROTEIN] = it }
+            cols.getOrNull(10)?.let { num(it) }?.let { centers[MacroType.CARBS] = it }
+            cols.getOrNull(11)?.let { num(it) }?.let { centers[MacroType.FAT] = it }
+            LogEntry(date, vals, weight, burn, if (centers.isEmpty()) null else centers)
         }
     }
 

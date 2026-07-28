@@ -56,7 +56,7 @@ class SheetWidgetProvider : AppWidgetProvider() {
     companion object {
         const val ACTION_REFRESH = "com.example.macrowidget.ACTION_REFRESH"
         const val ACTION_PAGE = "com.example.macrowidget.ACTION_PAGE"
-        const val PAGE_COUNT = 2                     // Today, Weight
+        const val PAGE_COUNT = 3                     // Today, Energy, Weight
         private const val PAGE_REQ_OFFSET = 1_000_000  // keep page/refresh PendingIntents distinct
         private const val UNIQUE_WORK = "macro_refresh"
         private const val THROTTLE_MS = 1200L
