@@ -17,7 +17,7 @@ data class DeficitConfig(
     val protein: Target,               // fixed two-sided band
     val fat: Target,                   // fixed two-sided band
     val carbHalfWidth: Float,          // half-width of the sliding carb band (from your current carb band)
-    val windowDays: Int = 28,          // "typical exercise" baseline window (matches TDEE)
+    val windowDays: Int = 20,          // "typical exercise" baseline window (matches TDEE)
     val outlierKcal: Float = 400f      // flag when the day's calorie target strays this far from baseline
 )
 
@@ -54,7 +54,7 @@ object DynamicTargetCalculator {
     fun typicalBurn(
         entries: List<LogEntry>,
         today: LocalDate = LocalDate.now(),
-        windowDays: Int = 28
+        windowDays: Int = 20
     ): Float {
         val end = today.minusDays(1)
         val start = end.minusDays((windowDays - 1).toLong())

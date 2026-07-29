@@ -73,20 +73,32 @@ object EnergyRenderer {
         val tdeeVal = tdee.tdee.roundToInt()
         val rate = tdee.lbPerWeek
 
+        // Lay the body out across the whole region between the title and the footer, anchoring
+        // each element to a fraction of that height so it fills the tile instead of clustering
+        // at the top (the clamped text sizes otherwise leave the lower half empty on big tiles).
+        val regionTop = padV + titleSize
+        val regionH = footerTop - regionTop
+
         // ===== hero: TDEE =====
-        val heroSize = clamp(avail * 0.14f, 34f, 96f)
-        val heroY = padV + titleSize + heroSize * 0.95f
+        val heroSize = clamp(avail * 0.15f, 34f, 104f)
+        val heroY = regionTop + regionH * 0.20f
         c.drawText(String.format("%,d", tdeeVal), cx, heroY,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WHITE; textSize = heroSize; isFakeBoldText = true; textAlign = Paint.Align.CENTER })
-        c.drawText("kcal/day · last ${tdee.windowDays}d", cx, heroY + subSize * 1.4f,
+        c.drawText("kcal/day · ${tdee.weighIns} weigh-in${if (tdee.weighIns == 1) "" else "s"}", cx, heroY + subSize * 1.5f,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MUTED; textSize = subSize; textAlign = Paint.Align.CENTER })
+
+        // ===== secondary stat: measured avg intake (fills the mid-tile gap) =====
+        tdee.avgIntake?.let {
+            c.drawText("Avg intake ${String.format("%,d", it.roundToInt())} kcal/day", cx, regionTop + regionH * 0.41f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FAINT; textSize = subSize * 0.95f; textAlign = Paint.Align.CENTER })
+        }
 
         // ===== measured rate, colored vs band =====
         val col = colorForRate(rate, band)
-        val rateY = heroY + subSize * 3.2f
+        val rateY = regionTop + regionH * 0.57f
         if (rate != null) {
             c.drawText("${fmt1(rate)} lb/wk", cx, rateY,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; textSize = subSize * 1.35f; isFakeBoldText = true; textAlign = Paint.Align.CENTER })
+                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col; textSize = subSize * 1.5f; isFakeBoldText = true; textAlign = Paint.Align.CENTER })
         }
 
         // ===== target-band gauge =====
@@ -94,10 +106,12 @@ object EnergyRenderer {
             val lo = band.lowerRate
             val hi = band.upperRate
             val rmin = max(0f, lo - 0.4f)
-            val rmax = hi + 0.4f
+            // Fixed headroom to ~1.8 lb/wk so a fast week (e.g. 1.3) sits well inside the track
+            // instead of pinned to the right edge; still expands if the band's upper is higher.
+            val rmax = max(hi + 0.4f, 1.8f)
             val gx0 = left + subSize * 1.5f
             val gx1 = right - subSize * 1.5f
-            val gy = rateY + subSize * 1.9f
+            val gy = regionTop + regionH * 0.75f
             fun gx(r: Float) = gx0 + (clamp(r, rmin, rmax) - rmin) / (rmax - rmin) * (gx1 - gx0)
 
             // track
@@ -118,7 +132,7 @@ object EnergyRenderer {
             val mid = (lo + hi) / 2f
             val req = tdee.intakeForRate(mid)
             val avg = tdee.avgIntake
-            val actY = gy + subSize * 2.6f
+            val actY = regionTop + regionH * 0.93f
             val ap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = subSize * 0.95f; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
             val roundedRate = round1(rate)
             if (roundedRate in lo..hi || req == null || avg == null) {

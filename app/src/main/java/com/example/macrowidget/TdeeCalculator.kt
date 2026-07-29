@@ -38,7 +38,7 @@ data class TdeeResult(
 object TdeeCalculator {
 
     const val KCAL_PER_LB = 3500f
-    const val DEFAULT_WINDOW_DAYS = 28      // ~4 weeks; matches the "typical exercise" baseline window
+    const val DEFAULT_WINDOW_DAYS = 20      // trailing window; matches Code.gs TDEE_WINDOW_DAYS + typical-burn baseline
 
     // Minimum-data bar before we show a number rather than "collecting".
     private const val MIN_SPAN_DAYS = 14    // at least two weeks of spread between first/last weigh-in

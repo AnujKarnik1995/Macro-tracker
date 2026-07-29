@@ -11,7 +11,7 @@ const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro band
 const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "basal", "burn", "t_cal", "t_pro", "t_carb", "t_fat"];
 
 // ----- TDEE / dynamic-target compute -----
-const TDEE_WINDOW_DAYS = 28;   // trailing window (completed days) for TDEE + typical-burn baseline
+const TDEE_WINDOW_DAYS = 20;   // trailing window (completed days) for TDEE + typical-burn baseline
 const KCAL_PER_LB = 3500;
 const MIN_WEIGH_INS = 8, MIN_INTAKE_DAYS = 10, MIN_SPAN_DAYS = 14;   // data bar before targets compute
 
