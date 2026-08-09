@@ -15,3 +15,8 @@ local.properties
 # Keystore / secrets
 *.jks
 *.keystore
+
+# Personal data exports used by the offline tests — keep only the synthetic
+# fixtures under backend/test/fixtures/. Real Tracker/Summary/FormResponses
+# exports dropped in backend/test/ stay out of the repo.
+backend/test/*.csv
