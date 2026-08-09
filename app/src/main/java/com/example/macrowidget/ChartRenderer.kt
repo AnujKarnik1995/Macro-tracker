@@ -93,25 +93,15 @@ object ChartRenderer {
             "$daysToGoal d → $goalLabel", COUNT_BG, COUNT_STROKE, chipText)
         y += ribbonH
 
-        // ===== Header: "<phase> · Today" with the dot centered on the tile =====
+        // ===== Header: "<phase> · Today", centered as one block on the tile =====
+        // (Previously the dot was pinned to the tile centre and each flank drawn outward, which
+        //  left the wider phrase hanging left of centre. Centre the whole string instead.)
         val centerX = (left + right) / 2f
-        val dotStr = "·"
-        val dotGap = titleSize * 0.30f
+        val fullTitle = "$phaseLabel · Today"
         titlePaint.textSize = titleSize
-        // Shrink until each flank fits its half of the width (phase is the wider one).
-        while (titlePaint.textSize > 16f) {
-            val avail = contentW / 2f - titlePaint.measureText(dotStr) / 2f - dotGap
-            if (titlePaint.measureText(phaseLabel) <= avail && titlePaint.measureText("Today") <= avail) break
-            titlePaint.textSize -= 1f
-        }
-        val baseY = centerBaseline(y, todayHdrH, titlePaint.textSize)
-        val dotHalf = titlePaint.measureText(dotStr) / 2f
         titlePaint.textAlign = Paint.Align.CENTER
-        c.drawText(dotStr, centerX, baseY, titlePaint)
-        titlePaint.textAlign = Paint.Align.RIGHT
-        c.drawText(phaseLabel, centerX - dotHalf - dotGap, baseY, titlePaint)
-        titlePaint.textAlign = Paint.Align.LEFT
-        c.drawText("Today", centerX + dotHalf + dotGap, baseY, titlePaint)
+        fitToWidth(titlePaint, fullTitle, contentW, 16f)
+        c.drawText(fullTitle, centerX, centerBaseline(y, todayHdrH, titlePaint.textSize), titlePaint)
         y += todayHdrH
 
         // ===== Today bullet rows =====
@@ -150,7 +140,8 @@ object ChartRenderer {
             c.drawText("No data this week yet", left, y + ringsH / 2f,
                 Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MUTED_COOL; textSize = labelSize })
         } else {
-            drawRings(c, weekly.values, targets, left, y, right, ringsH, cols)
+            // Rings grade the week's average against the week's MEAN per-day band, not today's.
+            drawRings(c, weekly.values, weekly.bands, left, y, right, ringsH, cols)
         }
 
         // ===== footer: page dots + refresh button =====

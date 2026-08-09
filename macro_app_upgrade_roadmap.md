@@ -187,3 +187,20 @@ Hold a **400–450 kcal/day deficit** by flexing intake with measured burn, so a
 - **Distinguish a true rest-day 0 from 'watch not worn / no sync'** via a wear/liveness signal (any
   HR or BMR record that day; steps usable as liveness only). Not worn → treat as **missing** →
   `delta = 0` → fall back to `TDEE − 425`, floored. Never let a wrist-off day falsely tighten.
+
+---
+
+## Removed: watch burn ingestion (Health Connect)
+
+Step 6 above (Pixel Watch -> Health Connect -> Form) was **removed**. The permission grant never
+worked reliably on-device, and nothing in the pipeline ever read the basal/BMR value it collected.
+`HealthConnectBurnReader.kt`, `BurnUploadWorker.kt`, the `androidx.health.connect` dependency, all
+`android.permission.health.*` permissions and the config screen's grant button are gone.
+
+Training calories are now hand-entered through the same Google Form (`{"burn": 320}`). Basal is not
+collected and is not needed: the TDEE regression back-calculates *total* expenditure from intake and
+the weight trend, so a separately measured BMR would be redundant by construction.
+
+Kept deliberately: `Summary` col G, permanently blank. Summary is parsed by column position, so
+collapsing the slot would shift the per-day target columns (I-L) and re-score historical green days.
+

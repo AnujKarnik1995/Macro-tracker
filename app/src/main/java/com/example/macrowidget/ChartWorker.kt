@@ -74,7 +74,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
             // Today's rings use the per-day target band (center ± config width) when the row has
             // computed targets, else the static current bands.
             val todayTargets = todayEntry?.let { MacroCalculator.effectiveTargets(it, targetHistory) } ?: targets
-            val weekly = MacroCalculator.weeklyAverage(entries, today)
+            val weekly = MacroCalculator.weeklyAverage(entries, targetHistory, today)
             val successfulCount = MacroCalculator.successfulDays(entries, targetHistory, today)
             val weightSeries = WeightCalculator.series(entries, weightTarget, today)
             val tdeeResult = TdeeCalculator.compute(entries, today)
@@ -158,7 +158,9 @@ class ChartWorker(context: Context, params: WorkerParameters) :
         append(today?.let { e -> MacroType.entries.joinToString(",") { (e.values[it] ?: 0f).toString() } } ?: "none")
         append('|')
         append(weekly?.let { wk ->
-            wk.dayCount.toString() + ":" + MacroType.entries.joinToString(",") { (wk.values[it] ?: 0f).toString() }
+            wk.dayCount.toString() + ":" +
+                MacroType.entries.joinToString(",") { (wk.values[it] ?: 0f).toString() } + ":" +
+                MacroType.entries.joinToString(",") { wk.bands[it]?.let { t -> "${t.lower}-${t.upper}" } ?: "n" }
         } ?: "none")
         append('|')
         append(targets.entries.sortedBy { it.key.ordinal }

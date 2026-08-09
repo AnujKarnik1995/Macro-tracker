@@ -3,22 +3,22 @@
 <desc>Energy page: TDEE 2,344 kcal/day over 16 weigh-ins, avg intake 1,694, measured 1.3 lb/wk on a gauge scaled to 1.8, above the 0.7 to 0.9 band, suggested eat +250 kcal/day.</desc>
 <rect x="0" y="0" width="320" height="410" rx="22" fill="#1b1c1e"/>
 
-<text x="160" y="36" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="700" fill="#FFFFFF">Burn rate</text>
+<text x="160" y="38" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="700" fill="#FFFFFF">Burn rate</text>
 
-<text x="160" y="128" text-anchor="middle" font-family="sans-serif" font-size="54" font-weight="700" fill="#FFFFFF">2,344</text>
-<text x="160" y="150" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#9AA0A6">kcal/day · 16 weigh-ins</text>
+<text x="160" y="134" text-anchor="middle" font-family="sans-serif" font-size="66" font-weight="700" fill="#FFFFFF">2,344</text>
+<text x="160" y="160" text-anchor="middle" font-family="sans-serif" font-size="18" fill="#9AA0A6">kcal/day · 16 weigh-ins</text>
 
-<text x="160" y="188" text-anchor="middle" font-family="sans-serif" font-size="13.5" fill="#7C8288">Avg intake 1,694 kcal/day</text>
+<text x="160" y="198" text-anchor="middle" font-family="sans-serif" font-size="17.5" fill="#7C8288">Avg intake 1,694 kcal/day</text>
 
-<text x="160" y="240" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="700" fill="#FFB300">1.3 lb/wk</text>
+<text x="160" y="244" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="700" fill="#FFB300">1.3 lb/wk</text>
 
 <rect x="36" y="287" width="248" height="8" rx="4" fill="#2B2B2B"/>
 <rect x="102" y="285" width="33" height="12" rx="4" fill="#15CF92" fill-opacity="0.6"/>
 <circle cx="201" cy="291" r="6.5" fill="#FFB300"/>
-<text x="102" y="315" text-anchor="middle" font-family="sans-serif" font-size="11.5" fill="#1FE3A6">0.7</text>
-<text x="135" y="315" text-anchor="middle" font-family="sans-serif" font-size="11.5" fill="#1FE3A6">0.9</text>
+<text x="102" y="317" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1FE3A6">0.7</text>
+<text x="135" y="317" text-anchor="middle" font-family="sans-serif" font-size="14" fill="#1FE3A6">0.9</text>
 
-<text x="160" y="353" text-anchor="middle" font-family="sans-serif" font-size="14" font-weight="700" fill="#15CF92">Eat +250 kcal/day → 0.8 lb/wk</text>
+<text x="160" y="356" text-anchor="middle" font-family="sans-serif" font-size="17.5" font-weight="700" fill="#15CF92">Eat +250 kcal/day → 0.8 lb/wk</text>
 
 <circle cx="292" cy="392" r="13" fill="#20242B" stroke="#3C6FA5" stroke-width="1.4"/>
 <text x="292" y="397" text-anchor="middle" font-family="sans-serif" font-size="15" fill="#AAB6C2">↻</text>

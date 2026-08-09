@@ -40,8 +40,6 @@
 <text x="256.2" y="495.9" fill="#9AA0A6" font-size="13.8" text-anchor="middle">5</text>
 <text x="299.0" y="495.9" fill="#9AA0A6" font-size="13.8" text-anchor="middle">6</text>
 <text x="341.8" y="495.9" fill="#AAB6C2" font-size="13.8" text-anchor="middle">now</text>
-<circle cx="200.9" cy="525.3" r="5.3" fill="#5F6468"/>
-<circle cx="219.1" cy="525.3" r="5.3" fill="#ECEFF3"/>
 <circle cx="377.7" cy="525.3" r="21.4" fill="#20242B"/>
 <circle cx="377.7" cy="525.3" r="21.4" fill="none" stroke="#3C6FA5" stroke-width="1.5"/>
 <text x="377.7" y="533.9" fill="#AAB6C2" font-size="25.6" text-anchor="middle">&#8635;</text>

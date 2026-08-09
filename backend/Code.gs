@@ -1,19 +1,43 @@
 // ===== CONFIG =====
-const TRACKER_TAB = "Tracker";            // raw log: meals (A-G), weigh-ins (H), burn (I basal / J active)
+const TRACKER_TAB = "Tracker";            // raw log: meals (A-G), weigh-ins (H), training burn (J)
 const SUMMARY_TAB = "Summary";            // STATIC daily totals the widget reads
 const RESPONSES_TAB = "Form responses 1"; // raw Google Form submissions (true source of truth)
 const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro bands + weight band + Floor + Deficit,
                                           // dated via an EffectiveFrom column (col E). Change name here if yours differs.
 
-// Tracker columns:  A date(0) B meal(1) C details(2) D cal(3) E p(4) F c(5) G f(6) H weight(7) I basal(8) J burn(9)
-// Summary columns:  A date(0) B cal(1) C p(2) D c(3) E f(4) F weight(5) G basal(6) H burn(7)
+// Tracker columns:  A date(0) B meal(1) C details(2) D cal(3) E p(4) F c(5) G f(6) H weight(7) I unused(8) J burn(9)
+// Summary columns:  A date(0) B cal(1) C p(2) D c(3) E f(4) F weight(5) G unused(6) H burn(7)
 //                   I t_cal(8) J t_pro(9) K t_carb(10) L t_fat(11)   <- per-day target CENTERS (updateDailyTargets)
-const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "basal", "burn", "t_cal", "t_pro", "t_carb", "t_fat"];
+// Col G/I ("unused") is a dead slot, kept BLANK on purpose — Summary is parsed by POSITION, so
+// collapsing it would shift cols I-L and re-score history. ASSUMPTIONS.md §11.
+const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "unused", "burn", "t_cal", "t_pro", "t_carb", "t_fat"];
 
 // ----- TDEE / dynamic-target compute -----
-const TDEE_WINDOW_DAYS = 20;   // trailing window (completed days) for TDEE + typical-burn baseline
+// 28 not 20: in a 20-day fit the 4 edge weigh-ins carry ~58% of the slope, so one water-low reading
+// at the edge swings TDEE by hundreds of kcal. Caused the 2 Aug 2026 overshoot. ASSUMPTIONS.md §8.
+const TDEE_WINDOW_DAYS = 28;   // trailing window (completed days) for TDEE + typical-burn baseline
 const KCAL_PER_LB = 3500;
 const MIN_WEIGH_INS = 8, MIN_INTAKE_DAYS = 10, MIN_SPAN_DAYS = 14;   // data bar before targets compute
+const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window median = unfinished log
+
+// ----- Training-burn flex: OFF -----
+// false = the workout delta is switched off end to end. Burn payloads are not ingested, existing
+// burn values are not read, and Summary col H is written blank — so clearing it survives a rebuild,
+// which clearing the cells by hand does not (the values live in Form responses -> Tracker -> Summary).
+//
+// Off because the historical numbers are watch "active calories" for resistance work, averaging 465
+// per session — roughly 2x a realistic net cost. Mixed with hand-entered figures they produced a
+// ~450 kcal/day swing in the daily target off a baseline that was itself wrong. The training is
+// already inside the measured TDEE (§5), so nothing is lost by ignoring it.
+//
+// Setting this back to true re-enables everything, but Tracker will be missing the burn rows: run
+// rebuildTrackerFromResponses to restore them from the response log, then rebuildAllSummary.
+// ASSUMPTIONS.md §24.
+const BURN_DELTA_ENABLED = false;
+
+// Basal/BMR is never processed at all — not gated, removed. It was only ever written to a column
+// nothing read, and an intake-anchored TDEE cannot need it (§4). Payload items carrying only
+// `basal` are dropped by payloadItemToRow.
 
 function processMacroPayload(e) {
   if (!e || !e.values) {
@@ -22,71 +46,90 @@ function processMacroPayload(e) {
 
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tracker = ss.getSheetByName(TRACKER_TAB);
-  const payloadString = e.values[1];
 
   try {
-    let data = JSON.parse(payloadString);
+    let data = JSON.parse(e.values[1]);
     if (!Array.isArray(data)) data = [data];
 
-    // Today (spreadsheet TZ). Used when an item has no explicit "date".
-    const today = Utilities.formatDate(new Date(), ss.getSpreadsheetTimeZone(), "yyyy-MM-dd");
+    const today = todayStr();                  // spreadsheet TZ; used when an item carries no "date"
+    const newRows = [];                        // batched: one write instead of one per item
+    const want = { macros: {}, weight: {}, burn: {} };
 
-    const mealDates = {};     // macro dates whose Summary row must be recomputed
-    const weightDates = {};   // dates whose Summary weight cell must be recomputed
-    const burnDates = {};     // dates whose Summary basal/burn cells must be recomputed
     data.forEach(item => {
-      // OPTIONAL back-date: item.date "DD/MM/YYYY" (for post-midnight / forgotten entries)
-      const rowDate = parseInputDate(item.date) || today;
-      if (isWeightEntry(item)) {
-        // Weigh-in row: date + weight in col H; macro columns left blank.
-        tracker.appendRow([rowDate, "Weigh-in", "", "", "", "", "", Number(item.weight)]);
-        weightDates[rowDate] = true;
-      } else if (isBurnEntry(item)) {
-        // Burn row: watch energy for the day — basal in col I, active/exercise in col J.
-        tracker.appendRow([rowDate, "Burn", "", "", "", "", "", "", numOrBlank(item.basal), numOrBlank(item.burn)]);
-        burnDates[rowDate] = true;
-      } else {
-        tracker.appendRow([
-          rowDate,
-          item.meal,
-          item.details || "",
-          item.cal,
-          item.p,
-          item.c,
-          item.f
-        ]);
-        mealDates[rowDate] = true;
-      }
+      // OPTIONAL back-date: item.date "DD/MM/YYYY" (post-midnight or forgotten entries)
+      const mapped = payloadItemToRow(item, today);
+      if (!mapped) return;                     // nothing usable in this item
+      newRows.push(mapped.row);
+      if (mapped.kind === "weight")    want.weight[mapped.date] = true;
+      else if (mapped.kind === "burn") want.burn[mapped.date]   = true;
+      else                             want.macros[mapped.date] = true;
     });
 
-    // Recompute the static Summary for EVERY date this submission touched
-    Object.keys(mealDates).forEach(d => updateDailySummary(d));
-    Object.keys(weightDates).forEach(d => updateWeightSummary(d));
-    Object.keys(burnDates).forEach(d => updateBurnSummary(d));
+    if (newRows.length) {
+      tracker.getRange(tracker.getLastRow() + 1, 1, newRows.length, TRACKER_WIDTH).setValues(newRows);
+    }
+
+    // Every touched date recomputed from ONE Tracker read and ONE Summary read.
+    const ctx = refreshSummary(ss, want);
+
+    // A burn entry changes that day's workout delta, so re-derive its targets now rather than waiting
+    // for the 14:30 trigger — training logged after 14:30 would otherwise never reach the target it
+    // was meant to adjust. ctx.sum already reflects the burn just written.
+    Object.keys(want.burn).forEach(d => updateDailyTargets(d, ctx));
 
   } catch (err) {
     Logger.log("Error processing payload: " + err);
   }
 }
 
+/** A usable number, or null. The single numeric guard for the whole file — cell values, payload
+ *  fields and config cells all go through here instead of open-coding !isNaN(Number(x)). */
+function num(v) {
+  if (v === undefined || v === null || v === "") return null;
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+}
+
+// Tracker is written 10 columns wide, uniformly:
+//   A date  B meal  C details  D cal  E p  F c  G f  H weight  I unused  J burn
+const TRACKER_WIDTH = 10;
+
+/**
+ * Turns one Form payload item into a Tracker row: {kind, date, row}, or **null** when the item
+ * carries nothing usable.
+ *
+ * The null case is real. 20 historical payloads are `{basal, date}` from the failed Health Connect
+ * backfill; basal is dead (§4), so they hold no information — yet the old code fell through to the
+ * meal branch and wrote 20 blank rows into Tracker, all dated 12 Jul. They never reached Summary
+ * (no macros, no weight, no burn) but they polluted the log. Now skipped.
+ *
+ * Single source of truth, shared by processMacroPayload and rebuildTrackerFromResponses — which
+ * previously each carried their own copy, already differing in padding width.
+ */
+function payloadItemToRow(item, fallbackDate) {
+  const d = parseInputDate(item && item.date) || fallbackDate;
+  const pad = v => { const r = []; for (let i = 0; i < TRACKER_WIDTH; i++) r.push(v[i] === undefined ? "" : v[i]); return r; };
+
+  if (isWeightEntry(item)) return { kind: "weight", date: d, row: pad([d, "Weigh-in", "", "", "", "", "", num(item.weight)]) };
+  if (isBurnEntry(item))   return { kind: "burn",   date: d, row: pad([d, "Burn", "", "", "", "", "", "", "", num(item.burn)]) };
+
+  const hasMacros = num(item && item.cal) !== null || num(item && item.p) !== null ||
+                    num(item && item.c)   !== null || num(item && item.f) !== null;
+  if (!hasMacros) return null;
+
+  return { kind: "meal", date: d, row: pad([d, item.meal || "", item.details || "",
+           numOrBlank(item.cal), numOrBlank(item.p), numOrBlank(item.c), numOrBlank(item.f)]) };
+}
+
 /** A payload item is a weigh-in if it carries a numeric `weight`. */
-function isWeightEntry(item) {
-  return item && item.weight !== undefined && item.weight !== null && item.weight !== "" &&
-         !isNaN(Number(item.weight));
-}
+function isWeightEntry(item) { return !!item && num(item.weight) !== null; }
 
-/** A payload item is a burn entry if it carries a numeric `burn` (active kcal) and/or `basal`
- *  (BMR kcal). These come from the watch via Health Connect. */
-function isBurnEntry(item) {
-  const hasBurn  = item && item.burn  !== undefined && item.burn  !== null && item.burn  !== "" && !isNaN(Number(item.burn));
-  const hasBasal = item && item.basal !== undefined && item.basal !== null && item.basal !== "" && !isNaN(Number(item.basal));
-  return hasBurn || hasBasal;
-}
+/** A payload item is a burn entry if it carries a numeric `burn` — the day's training calories,
+ *  entered by hand through the Form. (Formerly fed by the watch; that path was removed.) */
+function isBurnEntry(item) { return BURN_DELTA_ENABLED && !!item && num(item.burn) !== null; }
 
-/** Number, or "" if absent/blank/non-numeric. */
-function numOrBlank(v) {
-  return (v === undefined || v === null || v === "" || isNaN(Number(v))) ? "" : Number(v);
-}
+/** Number, or "" if absent/blank/non-numeric — for writing back into a cell. */
+function numOrBlank(v) { const n = num(v); return n === null ? "" : n; }
 
 /** Accepts an optional date string in DD/MM/YYYY (matching the form's timestamp)
  *  and returns it normalized to canonical "YYYY-MM-DD", or null if absent/invalid. */
@@ -102,102 +145,140 @@ function parseInputDate(s) {
 }
 
 /**
- * Sums Tracker macro columns for `dateStr` and upserts the macro cells (A-E) of that
- * date's Summary row. Leaves weight (F) and burn (G-H) untouched.
+ * ONE pass over Tracker, aggregating every date at once. Replaces four separate scans that each
+ * re-read the whole sheet and re-implemented the same arithmetic — which is how the last-value-wins
+ * burn bug survived in rebuildAllSummary after being fixed in updateBurnSummary.
+ *
+ * Returns { "yyyy-MM-dd": {cal, p, c, f, wSum, wN, burn, burnSeen} }.
  */
+function aggregateTracker(rows) {
+  const agg = {};
+  for (let i = 1; i < rows.length; i++) {            // skip header row
+    const d = normDate(rows[i][0]);
+    if (!d) continue;
+    let a = agg[d];
+    if (!a) a = agg[d] = { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, burn: 0, burnSeen: false };
+    a.cal += num(rows[i][3]) || 0;
+    a.p   += num(rows[i][4]) || 0;
+    a.c   += num(rows[i][5]) || 0;
+    a.f   += num(rows[i][6]) || 0;
+    const w = num(rows[i][7]);                       // H weight
+    if (w !== null && w > 0) { a.wSum += w; a.wN++; }
+    if (BURN_DELTA_ENABLED) {
+      const b = num(rows[i][9]);                     // J burn — every session for the date adds up
+      if (b !== null) { a.burn += b; a.burnSeen = true; }
+    }
+  }
+  return agg;
+}
+
+/** The aggregate for one date, or a zeroed one if Tracker has no rows for it. */
+function trackerDay(agg, dateStr) {
+  return agg[dateStr] || { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, burn: 0, burnSeen: false };
+}
+
+/** A date's weight, averaged and rounded to 0.1 lb, or "" when there were no weigh-ins. */
+function dayWeight(a) { return a.wN > 0 ? Math.round((a.wSum / a.wN) * 10) / 10 : ""; }
+
+/**
+ * Recomputes the requested Summary cells for each date, from ONE Tracker read and ONE Summary read.
+ * `want` is {macros:{date:true}, weight:{...}, burn:{...}} — only the listed column groups are
+ * written, so a meal submission never disturbs weight, burn or the per-day targets.
+ *
+ * Returns {summary, sum}. Because upsertSummary keeps `sum` in step with what it writes, the caller
+ * can pass that straight to updateDailyTargets and it cannot see stale data.
+ */
+function refreshSummary(ss, want) {
+  const tracker = ss.getSheetByName(TRACKER_TAB);
+  const summary = sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
+  const agg = aggregateTracker(tracker.getDataRange().getValues());
+  const sum = summary.getDataRange().getValues();
+
+  Object.keys(want.macros || {}).forEach(d => {
+    const a = trackerDay(agg, d);
+    upsertSummary(summary, sum, d, 1, [d, a.cal, a.p, a.c, a.f], true);
+  });
+  Object.keys(want.weight || {}).forEach(d => {
+    const a = trackerDay(agg, d);
+    upsertSummary(summary, sum, d, 6, [dayWeight(a)], a.wN > 0);
+  });
+  Object.keys(want.burn || {}).forEach(d => {
+    const a = trackerDay(agg, d);
+    upsertSummary(summary, sum, d, 8, [a.burnSeen ? a.burn : ""], a.burnSeen);
+  });
+  return { summary: summary, sum: sum };
+}
+
+/** Recomputes the macro cells (A-E) for one date. Weight, burn and targets untouched. */
 function updateDailySummary(dateStr) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tracker = ss.getSheetByName(TRACKER_TAB);
-  const summary = sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
-
-  const rows = tracker.getDataRange().getValues();
-  let cal = 0, p = 0, c = 0, f = 0;
-  for (let i = 1; i < rows.length; i++) {            // skip header row
-    if (normDate(rows[i][0]) === dateStr) {
-      cal += Number(rows[i][3]) || 0;
-      p   += Number(rows[i][4]) || 0;
-      c   += Number(rows[i][5]) || 0;
-      f   += Number(rows[i][6]) || 0;
-    }
-  }
-
-  // Upsert cols A-E only (preserve weight in F and burn in G-H)
-  const sum = summary.getDataRange().getValues();
-  for (let i = 1; i < sum.length; i++) {
-    if (normDate(sum[i][0]) === dateStr) {
-      summary.getRange(i + 1, 1, 1, 5).setValues([[dateStr, cal, p, c, f]]);
-      return;
-    }
-  }
-  summary.appendRow([dateStr, cal, p, c, f, "", "", ""]);   // weight + burn filled in by their updaters
+  const m = {}; m[dateStr] = true;
+  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { macros: m });
 }
 
-/**
- * Averages Tracker weigh-in values (col H) for `dateStr` and upserts the weight cell (F)
- * of that date's Summary row, leaving the other cells untouched. Kept to 0.1 lb.
- */
+/** Recomputes the weight cell (F) for one date, averaging that date's weigh-ins to 0.1 lb. */
 function updateWeightSummary(dateStr) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tracker = ss.getSheetByName(TRACKER_TAB);
-  const summary = sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
+  const m = {}; m[dateStr] = true;
+  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { weight: m });
+}
 
-  const rows = tracker.getDataRange().getValues();
-  let wSum = 0, n = 0;
-  for (let i = 1; i < rows.length; i++) {            // skip header row
-    if (normDate(rows[i][0]) === dateStr) {
-      const w = Number(rows[i][7]);                  // col H
-      if (!isNaN(w) && w > 0) { wSum += w; n++; }
-    }
-  }
-
-  const avg = n > 0 ? Math.round((wSum / n) * 10) / 10 : "";
-  const sum = summary.getDataRange().getValues();
-  for (let i = 1; i < sum.length; i++) {
-    if (normDate(sum[i][0]) === dateStr) {
-      summary.getRange(i + 1, 6).setValue(avg);      // col F only
-      return;
-    }
-  }
-  if (n > 0) summary.appendRow([dateStr, "", "", "", "", avg, "", ""]);  // weight-only day
+/** Recomputes the burn cell (H) for one date. Multiple sessions on a date are ADDED. §12 */
+function updateBurnSummary(dateStr) {
+  const m = {}; m[dateStr] = true;
+  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { burn: m });
 }
 
 /**
- * Picks the day's watch energy from Tracker "Burn" rows (cols I basal, J active) and upserts
- * the Summary basal/burn cells (G-H) for `dateStr`, leaving A-F untouched. Last non-blank value
- * for the date wins — a later same-day sync carries the more complete daily total.
+ * The spreadsheet timezone, fetched at most ONCE per execution. normDate() runs on every date cell
+ * of every row scan; fetching the tz per cell cost ~2,200 service calls per form submission.
+ * Each Apps Script execution gets a fresh global scope, so the cache can't go stale.
+ * ASSUMPTIONS.md §16.
  */
-function updateBurnSummary(dateStr) {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const tracker = ss.getSheetByName(TRACKER_TAB);
-  const summary = sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
+let _sheetTz = null;
+function sheetTz() {
+  if (_sheetTz === null) _sheetTz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
+  return _sheetTz;
+}
 
-  const rows = tracker.getDataRange().getValues();
-  let basal = "", burn = "", found = false;
-  for (let i = 1; i < rows.length; i++) {            // skip header; iterate in order so latest wins
-    if (normDate(rows[i][0]) === dateStr) {
-      const b = rows[i][8], a = rows[i][9];          // cols I, J
-      if (b !== "" && !isNaN(Number(b))) { basal = Number(b); found = true; }
-      if (a !== "" && !isNaN(Number(a))) { burn  = Number(a); found = true; }
-    }
-  }
-
-  const sum = summary.getDataRange().getValues();
-  for (let i = 1; i < sum.length; i++) {
-    if (normDate(sum[i][0]) === dateStr) {
-      summary.getRange(i + 1, 7, 1, 2).setValues([[basal, burn]]);  // cols G-H only
-      return;
-    }
-  }
-  if (found) summary.appendRow([dateStr, "", "", "", "", "", basal, burn]);  // burn-only day
+/** Today in the spreadsheet timezone, as canonical "yyyy-MM-dd". */
+function todayStr() {
+  return Utilities.formatDate(new Date(), sheetTz(), "yyyy-MM-dd");
 }
 
 /** Normalizes a cell to "yyyy-MM-dd" whether it comes back as a Date or a string. */
 function normDate(v) {
   if (v && Object.prototype.toString.call(v) === "[object Date]") {
-    const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-    return Utilities.formatDate(v, tz, "yyyy-MM-dd");
+    return Utilities.formatDate(v, sheetTz(), "yyyy-MM-dd");
   }
   return String(v).trim();
+}
+
+/**
+ * Writes `values` into the Summary row for `dateStr`, starting at 1-based column `col`.
+ * Missing date + appendIfMissing -> appends a full-width row with the values at that offset.
+ * Missing date + !appendIfMissing -> does nothing (a weight/burn updater with nothing to record).
+ *
+ * `rows` is mutated to match what was written, so a caller holding one snapshot across several
+ * upserts stays consistent — without that, a second new date in the same run would not see the
+ * first append, would also miss, and would append a SECOND row for it. Duplicate Summary rows are
+ * the one corruption the widget cannot survive: nothing there dedupes, and successfulDays() counts
+ * rows, so a duplicated green day is counted twice. ASSUMPTIONS.md §17.
+ */
+function upsertSummary(summary, rows, dateStr, col, values, appendIfMissing) {
+  for (let i = 1; i < rows.length; i++) {
+    if (normDate(rows[i][0]) === dateStr) {
+      summary.getRange(i + 1, col, 1, values.length).setValues([values]);
+      for (let j = 0; j < values.length; j++) rows[i][col - 1 + j] = values[j];
+      return true;
+    }
+  }
+  if (!appendIfMissing) return false;
+  const row = [];
+  for (let j = 0; j < SUMMARY_HEADER.length; j++) row.push("");
+  row[0] = dateStr;
+  for (let j = 0; j < values.length; j++) row[col - 1 + j] = values[j];
+  summary.appendRow(row);
+  rows.push(row);
+  return true;
 }
 
 /** Returns the sheet by name, creating it (with `header`) if missing or empty. */
@@ -210,35 +291,18 @@ function sheetWithHeader(ss, name, header) {
 
 /** Run manually to recompute TODAY's macro + weight + burn cells immediately (no form submit). */
 function rebuildToday() {
-  const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-  const today = Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+  const today = todayStr();
   updateDailySummary(today);
   updateWeightSummary(today);
   updateBurnSummary(today);
 }
 
 /** REPAIR TOOL: wipes Summary and rebuilds every day's macros, weight AND burn from Tracker.
- *  One clean row per date, sorted; weight averaged (0.1 lb); basal/burn take the last value. */
+ *  One clean row per date, sorted; weight averaged (0.1 lb); training burn summed. */
 function rebuildAllSummary() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tracker = ss.getSheetByName(TRACKER_TAB);
-
-  const rows = tracker.getDataRange().getValues();
-  const agg = {};                    // dateStr -> [cal, p, c, f, wSum, wN, basal, burn]
-  for (let i = 1; i < rows.length; i++) {   // skip header
-    const d = normDate(rows[i][0]);
-    if (!d) continue;
-    if (!agg[d]) agg[d] = [0, 0, 0, 0, 0, 0, "", ""];
-    agg[d][0] += Number(rows[i][3]) || 0;
-    agg[d][1] += Number(rows[i][4]) || 0;
-    agg[d][2] += Number(rows[i][5]) || 0;
-    agg[d][3] += Number(rows[i][6]) || 0;
-    const w = Number(rows[i][7]);
-    if (!isNaN(w) && w > 0) { agg[d][4] += w; agg[d][5]++; }
-    const b = rows[i][8], a = rows[i][9];              // last non-blank wins (rows are chronological)
-    if (b !== "" && !isNaN(Number(b))) agg[d][6] = Number(b);
-    if (a !== "" && !isNaN(Number(a))) agg[d][7] = Number(a);
-  }
+  const agg = aggregateTracker(tracker.getDataRange().getValues());   // the same pass the updaters use
 
   const summary = sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
 
@@ -257,9 +321,10 @@ function rebuildAllSummary() {
   const dates = Object.keys(agg).sort();   // yyyy-MM-dd sorts chronologically
   if (dates.length) {
     const out = dates.map(d => {
-      const a = agg[d];
-      const t = tByDate[d] || ["", "", "", ""];
-      return [d, a[0], a[1], a[2], a[3], a[5] > 0 ? Math.round(a[4] / a[5] * 10) / 10 : "", a[6], a[7],
+      const a = agg[d], t = tByDate[d] || ["", "", "", ""];
+      return [d, a.cal, a.p, a.c, a.f, dayWeight(a),
+              "",                              // col G intentionally blank (see SUMMARY_HEADER note)
+              a.burnSeen ? a.burn : "",
               t[0], t[1], t[2], t[3]];
     });
     summary.getRange(2, 1, out.length, SUMMARY_HEADER.length).setValues(out);
@@ -273,57 +338,50 @@ function rebuildTrackerFromResponses() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const responses = ss.getSheetByName(RESPONSES_TAB);
   const tracker = ss.getSheetByName(TRACKER_TAB);
-  const tz = ss.getSpreadsheetTimeZone();
 
   const resRows = responses.getDataRange().getValues();   // [timestamp, payload, ...]
-  const out = [];                    // rebuilt Tracker rows (10-wide, uniform)
-  let meals = 0, weighins = 0, burns = 0, skipped = 0;
+  const out = [];
+  const tally = { meal: 0, weight: 0, burn: 0 };
+  let unparseable = 0, empty = 0;
+
   for (let i = 1; i < resRows.length; i++) {              // skip header
-    const ts = resRows[i][0];
     const payload = resRows[i][1];
     if (!payload) continue;
     let data;
     try {
       data = JSON.parse(payload);
     } catch (err) {
-      skipped++;
+      unparseable++;
       Logger.log("Skipped unparseable response on row " + (i + 1) + ": " + err);
       continue;
     }
     if (!Array.isArray(data)) data = [data];
-    const fallbackDate = normDate(ts) || Utilities.formatDate(new Date(), tz, "yyyy-MM-dd");
+    const fallbackDate = normDate(resRows[i][0]) || todayStr();
     data.forEach(item => {
-      const rowDate = parseInputDate(item.date) || fallbackDate;
-      if (isWeightEntry(item)) {
-        out.push([rowDate, "Weigh-in", "", "", "", "", "", Number(item.weight), "", ""]);
-        weighins++;
-      } else if (isBurnEntry(item)) {
-        out.push([rowDate, "Burn", "", "", "", "", "", "", numOrBlank(item.basal), numOrBlank(item.burn)]);
-        burns++;
-      } else {
-        out.push([rowDate, item.meal, item.details || "", item.cal, item.p, item.c, item.f, "", "", ""]);
-        meals++;
-      }
+      const mapped = payloadItemToRow(item, fallbackDate);
+      if (!mapped) { empty++; return; }       // e.g. the legacy {basal,date} items — no information
+      out.push(mapped.row);
+      tally[mapped.kind]++;
     });
   }
 
-  // Replace Tracker's data rows (keep the header intact); clear/write 10 columns wide
+  // Replace Tracker's data rows, keeping the header
   const tLast = tracker.getLastRow();
-  if (tLast > 1) tracker.getRange(2, 1, tLast - 1, 10).clearContent();
-  if (out.length) tracker.getRange(2, 1, out.length, 10).setValues(out);
+  if (tLast > 1) tracker.getRange(2, 1, tLast - 1, TRACKER_WIDTH).clearContent();
+  if (out.length) tracker.getRange(2, 1, out.length, TRACKER_WIDTH).setValues(out);
 
   rebuildAllSummary();
 
-  Logger.log("Rebuilt from " + (resRows.length - 1) + " responses: " +
-             meals + " meals, " + weighins + " weigh-ins, " + burns + " burn, " + skipped + " skipped.");
+  Logger.log("Rebuilt from " + (resRows.length - 1) + " responses: " + tally.meal + " meals, " +
+             tally.weight + " weigh-ins, " + tally.burn + " burn, " + empty +
+             " items with nothing usable, " + unparseable + " unparseable payloads.");
 }
 
 // ===== DYNAMIC TARGETS (TDEE + workout → per-day carb-band center) =====
 
 /** Manual entry point: compute + write TODAY's targets. Safe to run from the editor. */
 function updateTargetsToday() {
-  const tz = SpreadsheetApp.getActiveSpreadsheet().getSpreadsheetTimeZone();
-  updateDailyTargets(Utilities.formatDate(new Date(), tz, "yyyy-MM-dd"));
+  updateDailyTargets(todayStr());
 }
 
 /**
@@ -332,60 +390,68 @@ function updateTargetsToday() {
  *   t_carb = (anchor − 4·protein_center − 9·fat_center) / 4        (carbs are the plug)
  *   t_pro / t_fat = fixed band centers from config; t_cal = anchor (display/context only).
  * Leaves the row's I-L untouched (widget then falls back to the static bands) if the config
- * isn't complete or TDEE isn't ready. Missing burn → no delta (fallback).
+ * isn't complete or TDEE isn't ready. No training logged → burn 0 → negative delta vs the
+ * all-days baseline, which is correct: a rest day costs less than an average day.
  */
-function updateDailyTargets(dateStr) {
+function updateDailyTargets(dateStr, ctx) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const summary = sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
+  const summary = ctx ? ctx.summary : sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
+
+  // ONE Summary read, shared by all four consumers below (was four separate reads). A caller that
+  // already holds a snapshot passes it in; upsertSummary keeps such snapshots in step with its
+  // writes, so reusing one cannot serve stale data.
+  const rows = ctx ? ctx.sum : summary.getDataRange().getValues();
 
   const cfg = readTargetConfig(ss, dateStr);
-  const tdee = computeTdee(ss, dateStr);
+  const tdee = computeTdee(rows, dateStr);
   if (!cfg || tdee === null) {
     Logger.log("Targets skipped for " + dateStr + " (config incomplete or not enough data yet).");
     return;
   }
 
-  const burnToday = readBurn(ss, dateStr);            // null = not worn / not posted → no delta
-  const typical = typicalBurn(ss, dateStr);
-  const delta = (burnToday === null) ? 0 : (burnToday - typical);
+  // Workout flex, or a flat 0 when BURN_DELTA_ENABLED is false.
+  const delta = BURN_DELTA_ENABLED
+    ? readBurn(rows, dateStr) - typicalBurn(rows, dateStr)   // both all-days figures — like for like
+    : 0;
 
   const anchor = Math.max(tdee + delta - cfg.deficit, cfg.floor);
   const tCarb = Math.max(0, (anchor - 4 * cfg.pCenter - 9 * cfg.fCenter) / 4);
-  const vals = [Math.round(anchor), Math.round(cfg.pCenter), Math.round(tCarb), Math.round(cfg.fCenter)];
 
-  const sum = summary.getDataRange().getValues();
-  for (let i = 1; i < sum.length; i++) {
-    if (normDate(sum[i][0]) === dateStr) {
-      summary.getRange(i + 1, 9, 1, 4).setValues([vals]);   // cols I-L
-      return;
-    }
-  }
-  summary.appendRow([dateStr, "", "", "", "", "", "", "", vals[0], vals[1], vals[2], vals[3]]);
+  // ONE DECIMAL on the centres — do NOT Math.round() to whole grams. The widget rebuilds each band
+  // as [centre ± halfWidth], and a .5 centre rounded up shifts the whole band up 0.5 g.
+  // ASSUMPTIONS.md §14.
+  const r1 = x => Math.round(x * 10) / 10;
+  const vals = [Math.round(anchor), r1(cfg.pCenter), r1(tCarb), r1(cfg.fCenter)];
+
+  upsertSummary(summary, rows, dateStr, 9, vals, true);   // cols I-L
 }
 
 /**
  * TDEE over the trailing window ending YESTERDAY (completed days only):
  *   TDEE = avg intake − weight_slope(lb/day) × 3500,  slope = least-squares over the weigh-ins.
- * Regression over the raw daily weigh-ins smooths water noise without hinging on endpoints.
- * Returns a number, or null if below the data bar.
+ *
+ * UNWEIGHTED, deliberately: an exponentially-weighted fit lost to plain least squares at every
+ * half-life tested, because up-weighting recent points re-creates the endpoint leverage the longer
+ * window exists to remove. Intake days below INTAKE_COMPLETE_FRAC of the window MEDIAN are dropped
+ * as incomplete logs. Returns null if below the data bar. ASSUMPTIONS.md §8, §13.
  */
-function computeTdee(ss, dateStr) {
-  const summary = ss.getSheetByName(SUMMARY_TAB);
-  if (!summary) return null;
-  const rows = summary.getDataRange().getValues();
-  const end = addDays(dateStr, -1);
-  const start = addDays(end, -(TDEE_WINDOW_DAYS - 1));
+function computeTdee(src, dateStr) {
+  const slice = windowRows(src, dateStr);
+  if (!slice) return null;
 
+  const startNum = dayNumber(slice.start);
   const weights = [];   // [dayIndex, weight]
-  const intakes = [];
-  for (let i = 1; i < rows.length; i++) {
-    const d = normDate(rows[i][0]);
-    if (!d || d < start || d > end) continue;
-    const w = Number(rows[i][5]);    // F weight
-    if (!isNaN(w) && w > 0) weights.push([daysBetween(start, d), w]);
-    const cal = Number(rows[i][1]);  // B cal
-    if (!isNaN(cal) && cal > 0) intakes.push(cal);
-  }
+  const rawIntakes = [];
+  slice.rows.forEach(r => {
+    const w = num(r.row[5]);      // F weight
+    if (w !== null && w > 0) weights.push([dayNumber(r.date) - startNum, w]);
+    const cal = num(r.row[1]);    // B cal
+    if (cal !== null && cal > 0) rawIntakes.push(cal);
+  });
+
+  // Drop incomplete logs BEFORE the count check, so a half-logged day can't satisfy the data bar.
+  const intakes = completeIntakes(rawIntakes);
+
   if (weights.length < MIN_WEIGH_INS || intakes.length < MIN_INTAKE_DAYS) return null;
 
   let minx = Infinity, maxx = -Infinity;
@@ -397,35 +463,92 @@ function computeTdee(ss, dateStr) {
   return avgIntake - slope * KCAL_PER_LB;
 }
 
-/** All-worn-days average of the active-burn column (H) over the same trailing window. */
-function typicalBurn(ss, dateStr) {
-  const summary = ss.getSheetByName(SUMMARY_TAB);
-  if (!summary) return 0;
-  const rows = summary.getDataRange().getValues();
+/**
+ * Filters out days whose logged calories are implausibly low for a COMPLETE day — a log that was
+ * started and abandoned, not a genuinely light day of eating.
+ *
+ * Judged against the window's own MEDIAN — not a fixed number, and deliberately NOT against protein
+ * (most low-protein days are real full days of eating badly; dropping them would inflate TDEE).
+ * Median not mean, so an outlier can't move its own threshold. No-ops on small samples.
+ * ASSUMPTIONS.md §13.
+ */
+function completeIntakes(cals) {
+  if (cals.length < 7) return cals.slice();
+  const sorted = cals.slice().sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const median = (sorted.length % 2) ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const cutoff = INTAKE_COMPLETE_FRAC * median;
+  const kept = cals.filter(c => c >= cutoff);
+  // Never let the filter gut the sample; if it would, trust the raw data instead.
+  return (kept.length >= Math.max(MIN_INTAKE_DAYS, Math.ceil(cals.length * 0.6))) ? kept : cals.slice();
+}
+
+/**
+ * Average training burn (col H) over the trailing window, counting EVERY calendar day in the
+ * window — a blank cell is a rest day worth 0, not a day to exclude.
+ *
+ * Averaging only the LOGGED days (the old behaviour) made a rest day score better than a light
+ * session. All-days averaging makes avg(delta) = 0 over the window by construction, which is what
+ * stops the workout flex quietly eating into the deficit. ASSUMPTIONS.md §12.
+ */
+function typicalBurn(src, dateStr) {
+  if (!BURN_DELTA_ENABLED) return 0;
+  const slice = windowRows(src, dateStr);
+  if (!slice || !slice.rows.length) return 0;
+  let sum = 0;
+  slice.rows.forEach(r => {
+    const b = num(r.row[7]);         // H burn — blank counts as a real 0 (rest day)
+    sum += (b === null ? 0 : b);
+  });
+  return sum / slice.rows.length;    // every day in the window counts, not just logged ones
+}
+
+/**
+ * Summary's values, from either a Spreadsheet (reads it) or an already-read values array (returns
+ * it as-is). Lets one caller read Summary ONCE and hand the same array to every consumer, without
+ * changing any public signature. Returns null if Summary is missing.
+ */
+function summaryValues(src) {
+  if (Array.isArray(src)) return src;
+  const sh = src.getSheetByName(SUMMARY_TAB);
+  return sh ? sh.getDataRange().getValues() : null;
+}
+
+/**
+ * Summary rows inside the trailing TDEE window (ends YESTERDAY — completed days only), as
+ * [{date, row}]. Shared by computeTdee and typicalBurn so the two can never disagree about which
+ * days are in scope. Returns null if Summary is missing.
+ */
+function windowRows(src, dateStr) {
+  const rows = summaryValues(src);
+  if (!rows) return null;
   const end = addDays(dateStr, -1);
   const start = addDays(end, -(TDEE_WINDOW_DAYS - 1));
-  let sum = 0, n = 0;
+  const out = [];
   for (let i = 1; i < rows.length; i++) {
     const d = normDate(rows[i][0]);
     if (!d || d < start || d > end) continue;
-    const b = rows[i][7];            // H burn (active) — blank = not worn → excluded
-    if (b !== "" && b !== null && !isNaN(Number(b))) { sum += Number(b); n++; }
+    out.push({ date: d, row: rows[i] });
   }
-  return n > 0 ? sum / n : 0;
+  return { start: start, end: end, rows: out };
 }
 
-/** Today's active-burn (col H) or null if blank (not worn / not yet posted). */
-function readBurn(ss, dateStr) {
-  const summary = ss.getSheetByName(SUMMARY_TAB);
-  if (!summary) return null;
-  const rows = summary.getDataRange().getValues();
+/**
+ * The day's training burn (col H), 0 when blank — must match typicalBurn's all-days baseline or the
+ * delta compares different things. A same-day entry logged later re-triggers updateDailyTargets from
+ * processMacroPayload. ASSUMPTIONS.md §12.
+ */
+function readBurn(src, dateStr) {
+  if (!BURN_DELTA_ENABLED) return 0;
+  const rows = summaryValues(src);
+  if (!rows) return 0;
   for (let i = 1; i < rows.length; i++) {
     if (normDate(rows[i][0]) === dateStr) {
-      const b = rows[i][7];
-      return (b !== "" && b !== null && !isNaN(Number(b))) ? Number(b) : null;
+      const b = num(rows[i][7]);
+      return b === null ? 0 : b;
     }
   }
-  return null;
+  return 0;
 }
 
 /**
@@ -480,42 +603,33 @@ function regressionSlope(pts) {
   return den === 0 ? 0 : num / den;
 }
 
-/** yyyy-MM-dd date arithmetic (day math only, no timezone needed). */
-function addDays(dateStr, n) {
+// ----- yyyy-MM-dd date arithmetic: pure string/integer math, no timezone involved -----
+
+/** Days since the epoch for a "yyyy-MM-dd" string. UTC, so DST can never shift the count. */
+function dayNumber(dateStr) {
   const p = dateStr.split("-");
-  const dt = new Date(+p[0], +p[1] - 1, +p[2]);
-  dt.setDate(dt.getDate() + n);
+  return Math.round(Date.UTC(+p[0], +p[1] - 1, +p[2]) / 86400000);
+}
+
+function addDays(dateStr, n) {
+  const dt = new Date((dayNumber(dateStr) + n) * 86400000);
   const pad = x => (x < 10 ? "0" + x : "" + x);
-  return dt.getFullYear() + "-" + pad(dt.getMonth() + 1) + "-" + pad(dt.getDate());
-}
-function daysBetween(a, b) {
-  const pa = a.split("-"), pb = b.split("-");
-  const da = new Date(+pa[0], +pa[1] - 1, +pa[2]);
-  const db = new Date(+pb[0], +pb[1] - 1, +pb[2]);
-  return Math.round((db - da) / 86400000);
+  return dt.getUTCFullYear() + "-" + pad(dt.getUTCMonth() + 1) + "-" + pad(dt.getUTCDate());
 }
 
-/** Run ONCE from the editor to install a daily ~14:30 trigger that recomputes today's targets. */
-function createTargetsTrigger() {
+function daysBetween(a, b) { return dayNumber(b) - dayNumber(a); }
+
+/** Replaces any existing daily trigger for `handler` with one at ~hour:minute (script timezone). */
+function installDailyTrigger(handler, hour, minute) {
   ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === "updateTargetsToday") ScriptApp.deleteTrigger(t);
+    if (t.getHandlerFunction() === handler) ScriptApp.deleteTrigger(t);
   });
-  ScriptApp.newTrigger("updateTargetsToday")
-    .timeBased().atHour(14).nearMinute(30).everyDays(1).create();
-  Logger.log("Targets trigger installed (~14:30, script timezone).");
+  ScriptApp.newTrigger(handler).timeBased().atHour(hour).nearMinute(minute).everyDays(1).create();
+  Logger.log(handler + " trigger installed (~" + hour + ":" + minute + ", script timezone).");
 }
 
-/** Run ONCE from the editor (desktop) to install a daily ~00:45 trigger that auto-rebuilds
- *  Tracker + Summary from the form responses. Safe to re-run; replaces any existing one. */
-function createNightlyRebuildTrigger() {
-  ScriptApp.getProjectTriggers().forEach(t => {
-    if (t.getHandlerFunction() === "rebuildTrackerFromResponses") ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger("rebuildTrackerFromResponses")
-    .timeBased()
-    .atHour(0)
-    .nearMinute(45)
-    .everyDays(1)
-    .create();
-  Logger.log("Nightly rebuild trigger installed (~00:45, script timezone).");
-}
+/** Run ONCE from the editor: daily ~14:30 recompute of today's targets. */
+function createTargetsTrigger() { installDailyTrigger("updateTargetsToday", 14, 30); }
+
+/** Run ONCE from the editor: nightly ~00:45 rebuild of Tracker + Summary from the form responses. */
+function createNightlyRebuildTrigger() { installDailyTrigger("rebuildTrackerFromResponses", 0, 45); }

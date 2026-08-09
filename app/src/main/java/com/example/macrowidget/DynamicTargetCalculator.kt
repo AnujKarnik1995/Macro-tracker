@@ -32,9 +32,9 @@ data class DayTarget(
     val fat: Target,          // fixed band (pass-through)
     val carbs: Target,        // sliding band: [center − halfWidth, center + halfWidth]
     val carbCenter: Int,
-    val workoutDelta: Int,    // today − typical exercise burn
-    val usedFallback: Boolean, // watch data missing → no delta applied
-    val outlier: Boolean       // calorie anchor strayed far from baseline → worth a sanity check
+    val workoutDelta: Int,       // today − typical training burn (negative on a rest day)
+    val noTrainingLogged: Boolean, // nothing logged today → treated as a 0 kcal rest day
+    val outlier: Boolean         // calorie anchor strayed far from baseline → worth a sanity check
 )
 
 /**
@@ -44,13 +44,17 @@ data class DayTarget(
  *   calorie anchor = TDEE + (today's exercise − typical exercise) − deficit,  floored
  *   carb center    = (calorie anchor − 4·protein_mid − 9·fat_mid) / 4         (carbs are the plug)
  *
- * "typical exercise" is the all-worn-days average over the window (rest days count as their real
- * 0; not-worn days excluded), keeping the delta consistent with TDEE — itself an all-days average.
+ * "typical exercise" is the ALL-DAYS average over the window — a day with no training logged is a
+ * rest day worth 0, not a day to skip. That keeps the delta consistent with TDEE (itself an
+ * all-days average) and makes avg(delta) = 0 across the window, so the workout flex can't quietly
+ * erode the deficit. Averaging only the LOGGED days (the old behaviour) made a rest day score
+ * better than a light session: baseline 300 gave rest -> 0 but a 250 kcal session -> -50.
  * Protein and fat bands never move; carbs absorbs the flex. Calories is derived, never gated.
+ * Mirrors Code.gs typicalBurn/readBurn — the two must agree or the delta compares different things.
  */
 object DynamicTargetCalculator {
 
-    /** All-worn-days average exercise burn over the trailing window (excludes today). */
+    /** All-days average training burn over the trailing window (excludes today; blank = 0). */
     fun typicalBurn(
         entries: List<LogEntry>,
         today: LocalDate = LocalDate.now(),
@@ -58,17 +62,16 @@ object DynamicTargetCalculator {
     ): Float {
         val end = today.minusDays(1)
         val start = end.minusDays((windowDays - 1).toLong())
-        val worn = entries
-            .filter { !it.date.isBefore(start) && !it.date.isAfter(end) }
-            .mapNotNull { it.exerciseBurn }          // null = not worn → excluded; 0f = rest → kept
-        return if (worn.isEmpty()) 0f else worn.average().toFloat()
+        val days = entries.filter { !it.date.isBefore(start) && !it.date.isAfter(end) }
+        if (days.isEmpty()) return 0f
+        return days.map { it.exerciseBurn ?: 0f }.average().toFloat()   // blank = rest day = 0
     }
 
     /**
      * The day's limits. Returns null when [tdee] isn't available yet (still collecting) — the
      * widget should fall back to the static sheet bands in that case.
      *
-     * @param todayBurn today's HR exercise burn; null = watch data missing (no delta, fallback).
+     * @param todayBurn today's training burn; null/blank = nothing logged = a 0 kcal rest day.
      */
     fun targetForDay(
         tdee: Float?,
@@ -78,8 +81,8 @@ object DynamicTargetCalculator {
     ): DayTarget? {
         if (tdee == null) return null
 
-        val worn = todayBurn != null
-        val delta = if (worn) todayBurn!! - typicalBurn else 0f     // missing → no adjustment
+        // Blank is a real 0, not "unknown": both sides of the delta are now all-days figures.
+        val delta = (todayBurn ?: 0f) - typicalBurn
 
         val anchor = max(tdee + delta - cfg.targetDeficit, cfg.calorieFloor)
 
@@ -92,7 +95,7 @@ object DynamicTargetCalculator {
         val carbHi = carbCenter + cfg.carbHalfWidth
 
         val baseline = max(tdee - cfg.targetDeficit, cfg.calorieFloor)
-        val outlier = worn && abs(anchor - baseline) > cfg.outlierKcal
+        val outlier = abs(anchor - baseline) > cfg.outlierKcal
 
         return DayTarget(
             calorieAnchor = anchor.roundToInt(),
@@ -101,7 +104,7 @@ object DynamicTargetCalculator {
             carbs = Target(carbLo.roundToInt().toFloat(), carbHi.roundToInt().toFloat(), underDanger = false),
             carbCenter = carbCenter.roundToInt(),
             workoutDelta = delta.roundToInt(),
-            usedFallback = !worn,
+            noTrainingLogged = todayBurn == null,
             outlier = outlier
         )
     }

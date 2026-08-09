@@ -42,12 +42,13 @@ object WeightCalculator {
 
         fun weekStart(d: LocalDate) = d.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
 
-        // Average by week.
-        val byWeek = LinkedHashMap<LocalDate, MutableList<Float>>()
-        for ((d, w) in daily) byWeek.getOrPut(weekStart(d)) { mutableListOf() }.add(w)
+        // Average by week; keep each weigh-in's date so we can tell when the week's own
+        // Saturday reading has landed.
+        val byWeek = LinkedHashMap<LocalDate, MutableList<Pair<LocalDate, Float>>>()
+        for ((d, w) in daily) byWeek.getOrPut(weekStart(d)) { mutableListOf() }.add(d to w)
         val starts = byWeek.keys.sorted()
 
-        val avgs = starts.map { s -> s to (byWeek[s]!!.average().toFloat()) }
+        val avgs = starts.map { s -> s to (byWeek[s]!!.map { it.second }.average().toFloat()) }
         val weeks = ArrayList<WeekWeight>(avgs.size)
         for (i in avgs.indices) {
             val (start, avg) = avgs[i]
@@ -57,7 +58,13 @@ object WeightCalculator {
             val rate = if (i > 0) round((avgs[i - 1].second - avg) * 10f) / 10f else null
             val inZone = if (target != null && rate != null)
                 rate >= target.lowerRate && rate <= target.upperRate else null
-            weeks.add(WeekWeight(end, avg, complete = end.isBefore(today), rate, inZone))
+            // A week finalizes when the calendar has passed its Saturday, OR the moment that
+            // Saturday's own weigh-in is logged — so the current week's point becomes a solid,
+            // labeled average as soon as the Saturday reading arrives, without waiting for Sunday.
+            // Past weeks that never logged a Saturday still finalize via the date check.
+            val hasEndReading = byWeek[start]!!.any { it.first == end }
+            val complete = end.isBefore(today) || (!end.isAfter(today) && hasEndReading)
+            weeks.add(WeekWeight(end, avg, complete, rate, inZone))
         }
 
         // Current week (the one containing today) + its target band from the previous week.

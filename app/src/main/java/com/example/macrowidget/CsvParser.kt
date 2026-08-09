@@ -40,7 +40,7 @@ object CsvParser {
 
     /**
      * Summary tab. Columns by position:
-     *   A date, B Cal, C Protein, D Carbs, E Fat, F weight, G basal, H burn,
+     *   A date, B Cal, C Protein, D Carbs, E Fat, F weight, G unused (always blank), H burn,
      *   I t_cal, J t_pro, K t_carb, L t_fat   (per-day target centers, written by Apps Script).
      * First row is assumed to be a header and skipped.
      */
@@ -57,7 +57,7 @@ object CsvParser {
             order.forEachIndexed { i, m -> vals[m] = round(num(cols[i + 1]) ?: 0f) }
             // Weight (col F) is optional and kept precise (0.1 lb) — the loss band is small.
             val weight = cols.getOrNull(5)?.let { num(it) }?.takeIf { it > 0f }
-            // Active/exercise burn (col H) — null when blank (not worn / not posted).
+            // Training burn (col H) — null when blank; treated as a 0 rest day downstream.
             val burn = cols.getOrNull(7)?.let { num(it) }
             // Per-day target centers (cols I–L). Null map when none present → static-band fallback.
             val centers = HashMap<MacroType, Float>()

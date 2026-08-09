@@ -6,9 +6,7 @@
 <rect x="215.7" y="16.3" width="185.4" height="42.1" rx="21.0" fill="#15202E"/>
 <rect x="216.4" y="17.1" width="183.9" height="40.6" rx="21.0" fill="none" stroke="#3C6FA5" stroke-width="2.1"/>
 <text x="308.4" y="44.1" fill="#FFFFFF" font-size="19.3" font-weight="600" text-anchor="middle">72 d → Oct 7</text>
-<text x="210.0" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="middle">·</text>
-<text x="199.3" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="end">Cutting Phase</text>
-<text x="220.7" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="start">Today</text>
+<text x="210.0" y="91.2" fill="#FFFFFF" font-size="22.3" font-weight="700" text-anchor="middle">Cutting Phase · Today</text>
 <text x="18.9" y="128.7" fill="#FFFFFF" font-size="20.3">Cals</text>
 <rect x="73.8" y="112.6" width="266.3" height="18.0" rx="9.0" fill="#2B2B2B"/>
 <rect x="261.7" y="112.6" width="9.4" height="18.0" fill="#15CF92" opacity="0.235"/>
@@ -66,8 +64,6 @@
 <circle cx="305.6" cy="450.6" r="27.6" fill="none" stroke="#1FE3A6" stroke-width="8.8" stroke-linecap="round" stroke-dasharray="133.3 173.3" transform="rotate(-90 305.6 450.6)"/>
 <text x="305.6" y="455.5" fill="#FFFFFF" font-size="14.0" font-weight="700" text-anchor="middle">50g</text>
 <text x="305.6" y="502.9" fill="#ECEFF3" font-size="19.9" text-anchor="middle">Fat</text>
-<circle cx="202.9" cy="530.7" r="4.2" fill="#ECEFF3"/>
-<circle cx="217.1" cy="530.7" r="4.2" fill="#5F6468"/>
 <circle cx="382.5" cy="530.7" r="16.6" fill="#20242B"/>
 <circle cx="382.5" cy="530.7" r="16.6" fill="none" stroke="#3C6FA5" stroke-width="1.2"/>
 <text x="382.5" y="537.4" fill="#AAB6C2" font-size="19.9" text-anchor="middle">&#8635;</text>

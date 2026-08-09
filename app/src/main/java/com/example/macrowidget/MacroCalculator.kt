@@ -69,7 +69,11 @@ object MacroCalculator {
      * counting only dates that actually have a row. Today's running total is
      * included. Missing days simply drop out of the divisor.
      */
-    fun weeklyAverage(entries: List<LogEntry>, today: LocalDate = LocalDate.now()): WeeklyAverage? {
+    fun weeklyAverage(
+        entries: List<LogEntry>,
+        history: TargetHistory,
+        today: LocalDate = LocalDate.now()
+    ): WeeklyAverage? {
         val start = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.SUNDAY))
         val inWeek = entries.filter { !it.date.isBefore(start) && !it.date.isAfter(today) }
         if (inWeek.isEmpty()) return null
@@ -77,6 +81,25 @@ object MacroCalculator {
         for (m in MacroType.entries) {
             avg[m] = inWeek.map { it.values[m] ?: 0f }.average().toFloat()
         }
-        return WeeklyAverage(avg, inWeek.size, start, today)
+        // Weekly ring band = mean of each macro's per-day EFFECTIVE band across the in-week days.
+        // A day contributes a macro only if it had a band that day; a macro no day banded simply
+        // drops out and its ring shows neutral (same as an absent target). This is what makes the
+        // rings track the sliding TDEE targets instead of today's single (possibly floor-day) band.
+        val loSum = HashMap<MacroType, Float>(); val hiSum = HashMap<MacroType, Float>()
+        val cnt = HashMap<MacroType, Int>(); val danger = HashMap<MacroType, Boolean>()
+        for (e in inWeek) {
+            for ((m, t) in effectiveTargets(e, history)) {
+                loSum[m] = (loSum[m] ?: 0f) + t.lower
+                hiSum[m] = (hiSum[m] ?: 0f) + t.upper
+                cnt[m] = (cnt[m] ?: 0) + 1
+                danger[m] = t.underDanger
+            }
+        }
+        val bands = HashMap<MacroType, Target>()
+        for (m in cnt.keys) {
+            val n = cnt[m]!!
+            bands[m] = Target(loSum[m]!! / n, hiSum[m]!! / n, danger[m] ?: false)
+        }
+        return WeeklyAverage(avg, bands, inWeek.size, start, today)
     }
 }

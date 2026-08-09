@@ -50,8 +50,10 @@ object EnergyRenderer {
         val footerH = avail * 0.09f
         val footerTop = h - padV - footerH
 
-        val titleSize = clamp(avail * 0.052f, 16f, 36f)
-        val subSize = clamp(avail * 0.032f, 12f, 22f)
+        // Sizes fill the tile: the old ceilings (title 36 / sub 22) left the whole page a small
+        // cluster of text under a lone hero number on a large widget. Scale up and cap higher.
+        val titleSize = clamp(avail * 0.075f, 22f, 58f)
+        val subSize = clamp(avail * 0.046f, 15f, 34f)
 
         // ===== header =====
         c.drawText("Burn rate", cx, padV + titleSize,
@@ -80,7 +82,7 @@ object EnergyRenderer {
         val regionH = footerTop - regionTop
 
         // ===== hero: TDEE =====
-        val heroSize = clamp(avail * 0.15f, 34f, 104f)
+        val heroSize = clamp(avail * 0.175f, 40f, 132f)
         val heroY = regionTop + regionH * 0.20f
         c.drawText(String.format("%,d", tdeeVal), cx, heroY,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = WHITE; textSize = heroSize; isFakeBoldText = true; textAlign = Paint.Align.CENTER })
@@ -89,8 +91,10 @@ object EnergyRenderer {
 
         // ===== secondary stat: measured avg intake (fills the mid-tile gap) =====
         tdee.avgIntake?.let {
-            c.drawText("Avg intake ${String.format("%,d", it.roundToInt())} kcal/day", cx, regionTop + regionH * 0.41f,
-                Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FAINT; textSize = subSize * 0.95f; textAlign = Paint.Align.CENTER })
+            val ip = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FAINT; textSize = subSize * 0.95f; textAlign = Paint.Align.CENTER }
+            val txt = "Avg intake ${String.format("%,d", it.roundToInt())} kcal/day"
+            fitToWidth(ip, txt, right - left)
+            c.drawText(txt, cx, regionTop + regionH * 0.41f, ip)
         }
 
         // ===== measured rate, colored vs band =====
@@ -125,7 +129,7 @@ object EnergyRenderer {
             c.drawText(fmt1(lo), gx(lo), gy + subSize * 1.25f, zp)
             c.drawText(fmt1(hi), gx(hi), gy + subSize * 1.25f, zp)
             // current marker
-            c.drawCircle(gx(rate), gy, clamp(w * 0.011f, 4f, 8f),
+            c.drawCircle(gx(rate), gy, clamp(w * 0.013f, 5f, 11f),
                 Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col })
 
             // ===== action line =====
@@ -135,14 +139,15 @@ object EnergyRenderer {
             val actY = regionTop + regionH * 0.93f
             val ap = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = subSize * 0.95f; textAlign = Paint.Align.CENTER; isFakeBoldText = true }
             val roundedRate = round1(rate)
-            if (roundedRate in lo..hi || req == null || avg == null) {
-                ap.color = GREEN
-                c.drawText("On target · hold here", cx, actY, ap)
+            val actText = if (roundedRate in lo..hi || req == null || avg == null) {
+                ap.color = GREEN; "On target · hold here"
             } else {
                 val delta = (req - avg).roundToInt()
                 ap.color = if (delta >= 0) GREEN else AMBER
-                c.drawText("Eat ${signedInt(delta)} kcal/day → ${fmt1(mid)} lb/wk", cx, actY, ap)
+                "Eat ${signedInt(delta)} kcal/day → ${fmt1(mid)} lb/wk"
             }
+            fitToWidth(ap, actText, right - left)
+            c.drawText(actText, cx, actY, ap)
         }
 
         WidgetChrome.drawFooter(c, left, right, footerTop, footerH, page, pageCount)
@@ -158,6 +163,10 @@ object EnergyRenderer {
             r < band.lowerRate -> RED
             else -> GREEN
         }
+    }
+
+    private fun fitToWidth(p: Paint, text: String, maxW: Float, min: Float = 10f) {
+        while (p.textSize > min && p.measureText(text) > maxW) p.textSize = p.textSize - 1f
     }
 
     private fun round1(v: Float): Float = (v * 10f).roundToInt() / 10f

@@ -36,8 +36,11 @@ The project grew in layers, each committed as it stabilized:
    daily target that holds a steady deficit: `anchor = TDEE + workout_delta − deficit`, floored.
    Protein and fat stay fixed; **carbs are the daily plug** that slides. Calories is a computed
    anchor, never a pass/fail metric.
-6. **Watch ingestion.** Pixel Watch → Health Connect → Google Form → Sheet, adding measured
-   BMR and active-exercise burn so the daily target can flex with how hard you actually trained.
+6. **Training-burn flex.** The day's strength-training calories go in through the same Google
+   Form, so the daily target can flex with how hard you actually trained. (Originally a Pixel Watch
+   → Health Connect automation; it never worked reliably and was removed — the burn number is
+   hand-entered.) **This flex is currently switched off** (`BURN_DELTA_ENABLED = false`); the
+   training is already inside the measured TDEE, so the delta is held at 0. See ASSUMPTIONS.md §24.
 
 ## Intent
 
@@ -49,9 +52,9 @@ you in the goal loss-rate band, while never punishing past effort when the plan 
 
 <table>
   <tr>
-    <td align="center"><img src="docs/render_today.png" width="240" alt="Today view — graded macro bullet rows and weekly rings"></td>
-    <td align="center"><img src="docs/render_energy.png" width="240" alt="Burn rate view — measured TDEE, loss rate vs band, intake suggestion"></td>
-    <td align="center"><img src="docs/render_weight.png" width="240" alt="Weight view — weekly-average trend with target band"></td>
+    <td align="center"><img src="docs/render_today.svg" width="240" alt="Today view — graded macro bullet rows and weekly rings"></td>
+    <td align="center"><img src="docs/render_energy.svg" width="240" alt="Burn rate view — measured TDEE, loss rate vs band, intake suggestion"></td>
+    <td align="center"><img src="docs/render_weight.svg" width="240" alt="Weight view — weekly-average trend with target band"></td>
   </tr>
   <tr>
     <td align="center"><b>Page 1 · Today</b><br>streak + countdown, graded macro rows, weekly rings</td>
@@ -67,7 +70,9 @@ Graded bullet rows for Calories, Protein, Carbs, Fat vs. the day's target band. 
 targets exist (Sheet `Summary` cols I–L) each row uses that day's computed center ± the config
 band width; otherwise it falls back to the static `Targets` band. Each bar marks its upper bound
 (`≤`) and shows a faint "to go" hint below the midpoint (informational only). A streak chip and
-a day-countdown to the goal date sit on top; a weekly-average ring cluster sits below.
+a day-countdown to the goal date sit on top; a weekly-average ring cluster sits below — each ring
+grades the week's average against the **mean of that macro's per-day band across the week**, so a
+single low-ceiling day (e.g. a deep-deficit Saturday) doesn't skew the week's color.
 
 ### Page 2 · Burn rate (Energy)
 Your empirically measured **TDEE** (hero), the number of weigh-ins it's based on, and your
@@ -78,10 +83,11 @@ a marker, and an action line telling you how to adjust intake to settle into the
 
 ### Page 3 · Weight
 A weekly-average weight trend. Daily weigh-ins (`Summary` col F) show as a faint cluster on the
-current week and consolidate into one weekly point at week's end (Sun→Sat). Week-over-week loss
-is judged against the rate band (the `Targets` "Weight Loss" row): in-band weeks get a ✓,
-out-of-band show amber. A green band anchored at last week's average − 0.7 to − 0.9 marks where
-the current week should land.
+current week and consolidate into one weekly point (week = Sun→Sat). The current week finalizes —
+becoming a solid, labeled point — as soon as **its Saturday weigh-in is logged**, rather than
+waiting for the calendar to roll past Saturday. Week-over-week loss is judged against the rate band
+(the `Targets` "Weight Loss" row): in-band weeks get a ✓, out-of-band show amber. A green band
+anchored at last week's average − 0.7 to − 0.9 marks where the current week should land.
 
 Color throughout is **graded**, not snapped: inside the band = green, easing to amber then red
 as you drift. Being *under* on fat is treated as danger; under on cals/carbs/protein is amber.
@@ -90,9 +96,10 @@ as you drift. Being *under* on fat is treated as danger; under on cals/carbs/pro
 
 ### TDEE (measured, not assumed)
 `TDEE ≈ avg intake − weight_slope(lb/day) × 3500`, where the slope is a least-squares regression
-over the trailing window's weigh-ins (currently **20 days**, ending yesterday — today's partial
-intake is excluded). Regression over the raw daily points smooths water/glycogen noise without
-hinging on two endpoints. It only shows a number once past the data bar: **≥ 8 weigh-ins,
+over the trailing window's weigh-ins (**28 days**, ending yesterday — today's partial intake is
+excluded). 28 rather than 20: in a 20-day fit the four edge weigh-ins carry ~58% of the slope, so a
+single water-low reading at the window edge could swing TDEE by hundreds of kcal (ASSUMPTIONS.md §8).
+Regression over the raw daily points smooths water/glycogen noise without hinging on two endpoints. It only shows a number once past the data bar: **≥ 8 weigh-ins,
 ≥ 10 logged-intake days, and a ≥ 14-day span** within the window; otherwise it reports how many
 more days are needed.
 
@@ -100,9 +107,11 @@ more days are needed.
 Computed in the Sheet (`Code.gs`) and written to `Summary` I–L:
 `anchor = max(TDEE + (today's burn − typical burn) − deficit, floor)`, then
 `carb_center = (anchor − 4·protein_center − 9·fat_center) / 4`. Protein/fat centers come from
-their fixed bands; carbs absorb the flex; `t_cal` is the anchor (display only). Missing watch
-data → no workout delta (falls back cleanly). `Floor` and `Deficit` are read from the `Targets`
-tab as dated config.
+their fixed bands; carbs absorb the flex; `t_cal` is the anchor (display only). The workout-burn
+term `(today's burn − typical burn)` is **currently forced to 0** — the training-burn flex is off
+(`BURN_DELTA_ENABLED = false`, see below and ASSUMPTIONS.md §24) — so in practice
+`anchor = max(TDEE − deficit, floor)`. `Floor` and `Deficit` are read from the `Targets` tab as
+dated config.
 
 ### Frozen green days
 A day counts as successful when **Protein, Carbs and Fat all land in band** (Calories are
@@ -110,11 +119,24 @@ intentionally not gated). Each day is scored against the target in effect *on th
 `TargetHistory`/`EffectiveFrom`, so editing or dating a new target never re-scores earlier days.
 The tally is recomputed from the Sheet each refresh, so it self-corrects and never drifts.
 
-### Watch burn ingestion
-`HealthConnectBurnReader` reads the day's active-exercise calories (aggregate, with record-sum
-and Total−BMR fallbacks) and latest BMR. `BurnUploadWorker` posts `{basal, burn, date}` to the
-existing Google Form (single-day, plus a one-time 30-day backfill). Health Connect retains
-~30 days; older days are hand-entered via a back-dated Form payload. See `SETUP-burn-ingestion.md`.
+### Training burn (currently OFF)
+The training-burn flex is switched off end to end (`BURN_DELTA_ENABLED = false`): burn payloads are
+not ingested, existing burn values are not read, and `Summary` col H is written blank, so the
+workout delta contributes nothing to the daily target. It's off because the historical figures were
+watch "active calories" for resistance work (~2× a realistic net cost), and that training is already
+captured inside the measured TDEE — so nothing is lost by ignoring it (ASSUMPTIONS.md §24).
+
+To re-enable, set `BURN_DELTA_ENABLED = true`, then run `rebuildTrackerFromResponses` (restores the
+burn rows) followed by `rebuildAllSummary`. When on: burn is submitted as `{"burn": 320}` through the
+Form (add `"date": "DD/MM/YYYY"` to back-date); multiple entries for one date are **summed**; a day
+with nothing logged is a **rest day worth 0** so the delta averages to zero across the window; and
+submitting burn re-runs that day's target immediately, so training logged after the 14:30 trigger
+still lands.
+
+There is no phone or watch integration: nothing in the app reads health data. Basal/BMR is not
+collected and is not needed — the TDEE regression measures total expenditure from intake and the
+weight trend, so a separate BMR figure would be redundant. `Summary` col G is a permanently blank
+slot kept only so the per-day target columns (I–L) don't shift position.
 
 ### No-blink refresh, offline, retries
 Each refresh paints the last rendered frame instantly (cached to disk) before the fetch runs, so
@@ -130,8 +152,9 @@ widget reads two published CSVs:
 
 **Summary** (built by Apps Script; columns by position):
 ```
-date, cal, p, c, f, weight, basal, burn, t_cal, t_pro, t_carb, t_fat
+date, cal, p, c, f, weight, unused, burn, t_cal, t_pro, t_carb, t_fat
 ```
+(`unused`/col G is always blank — a fixed slot so the target columns `t_cal`–`t_fat` don't shift.)
 
 **Targets** (rows matched by keyword, so order is flexible; `EffectiveFrom` is optional):
 ```
@@ -145,8 +168,8 @@ Floor,        1625,                          (only Lower is read — anti-starve
 Deficit,      425,                           (only Lower is read — kcal/day deficit to hold)
 ```
 
-`Floor` and `Deficit` are required for the dynamic targets to compute; without them the widget
-falls back to the static bands. To switch the dynamic system on at a chosen date, set that date
+`Floor` and `Deficit` are required for the dynamic targets to compute; without them `Code.gs` writes
+no per-day targets and the widget falls back to the static bands. To switch the dynamic system on at a chosen date, set that date
 as `EffectiveFrom` on the `Floor` and `Deficit` rows — earlier days stay on the static bands.
 
 Publish each tab: **File → Share → Publish to web → that tab → CSV → Publish**, and copy each
@@ -154,15 +177,14 @@ link (`.../pub?gid=...&single=true&output=csv`).
 
 ### 2. Apps Script
 Paste `backend/Code.gs` into the Sheet's Apps Script editor. Add the `Floor`/`Deficit` rows,
-run `updateTargetsToday` once, and create the daily trigger (`createTargetsTrigger`, ~14:30) so
-each new day gets its targets written. (Optional watch backfill: `runBackfill`.)
+run `updateTargetsToday` once, and create the daily targets trigger (`createTargetsTrigger`, ~14:30)
+so each new day gets its targets written. Optionally also run `createNightlyRebuildTrigger` (~00:45)
+to rebuild `Tracker`+`Summary` from the raw form responses each night.
 
 ### 3. Build + add the widget
 1. Open the folder in **Android Studio** (Hedgehog or newer); let Gradle sync; run on device.
 2. Long-press home → **Widgets** → **Macro Widget** → drag on a tile.
 3. Paste the **Summary URL** and **Targets URL** → **Save** (remembered for next time).
-4. To feed watch data, tap **Grant Watch / Health Connect Access** in setup and approve the
-   Health Connect permissions.
 
 ### 4. Use
 Tap the **left/right halves** to change page; tap the **↻ corner** to refresh. The tile also
@@ -170,26 +192,26 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 
 ## Where things live
 
-- `CsvParser.kt` — parses `Summary` (by position, incl. weight/burn and per-day targets I–L) and `Targets` (by keyword, incl. dated bands + `Floor`/`Deficit`).
+- `CsvParser.kt` — parses `Summary` (by position, incl. weight/burn and per-day targets I–L) and `Targets` (by keyword: dated macro bands + the `Weight Loss` row). It does **not** read `Floor`/`Deficit` — those are `Code.gs`-only.
 - `MacroModel.kt` — `LogEntry`, `MacroType`, `Target`, `DatedTarget`, `TargetHistory` (frozen greens), `WeightTarget`.
-- `MacroCalculator.kt` — today's row, weekly average, successful-day tally, `effectiveTargets` (per-day center ± width, static fallback).
+- `MacroCalculator.kt` — today's row, weekly average (incl. the week's mean per-day band used to color the rings), successful-day tally, `effectiveTargets` (per-day center ± width, static fallback).
 - `TdeeCalculator.kt` — back-calculated TDEE + loss rate over the trailing window; readiness gate.
-- `DynamicTargetCalculator.kt` — app-side dynamic-target reference implementation (production compute lives in `Code.gs`).
+- `DynamicTargetCalculator.kt` — **unused**. An app-side reference implementation that nothing calls; the production compute is `Code.gs`. Slated for deletion (see ASSUMPTIONS.md §17).
 - `WeightCalculator.kt` — weekly-average weight, week-over-week rate, in-zone, current-week band.
 - `ColorRamp.kt` — graded palettes and the zone-color function.
 - `ChartRenderer.kt` / `EnergyRenderer.kt` / `WeightRenderer.kt` — the three page bitmaps.
 - `WidgetChrome.kt` — shared footer (refresh button; page dots removed in favor of tap halves).
-- `HealthConnectBurnReader.kt` — reads active calories + BMR from Health Connect.
-- `BurnUploadWorker.kt` — posts burn to the Form; single-day + 30-day backfill.
 - `ChartWorker.kt` — fetches both CSVs off-thread, computes streak/countdown/TDEE, 3-way page dispatch, pushes the bitmap. Holds `GOAL_DATE` / `GOAL_LABEL`.
 - `SheetFetcher.kt` / `SheetCache.kt` / `BitmapCache.kt` — fetch with retry + conditional GET, per-URL CSV cache, and last-frame cache (no-blink).
 - `SheetWidgetProvider.kt` — update/resize/tap handling (prev/next page + refresh), cached-frame painting, work de-dup + throttle.
-- `WidgetConfigActivity.kt` — the two-URL setup screen + Health Connect grant flow.
+- `WidgetConfigActivity.kt` — the two-URL setup screen.
 - `backend/Code.gs` — the Sheet-side engine: Form ingestion, `Summary` build, TDEE + dynamic-target compute, dated config.
 
 ## Docs
+- `ASSUMPTIONS.md` — every tuning decision, why it exists, what it costs, and how to check it.
+- `CONFIG-PROPOSAL.md` — proposed `Config` sheet for making the dials configurable.
+- `backend/test/README.md` — how to run the offline test rig.
 - `SPEC-frozen-green-days.md` — the dated-target scoring rule.
-- `SETUP-burn-ingestion.md` — watch → Health Connect → Form deploy, backfill, and manual entry.
 - `macro_app_upgrade_roadmap.md` — design history and what's next.
 
 ## Note

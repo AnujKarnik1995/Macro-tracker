@@ -79,9 +79,13 @@ data class LogEntry(
     val targetCenters: Map<MacroType, Float>? = null
 )
 
-/** Result of the weekly average computation. */
+/** Result of the weekly average computation.
+ *  [bands] = each macro's per-day effective band averaged across the days in the week — the
+ *  reference the weekly rings are coloured against. Averaging the band (not using today's single
+ *  band) keeps a low-ceiling floor day from painting the whole week's average out of zone. */
 data class WeeklyAverage(
     val values: Map<MacroType, Float>,
+    val bands: Map<MacroType, Target>,
     val dayCount: Int,
     val start: LocalDate,
     val end: LocalDate

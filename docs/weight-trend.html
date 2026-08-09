@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Weight trend — cut to date</title>
+<style>
+  .viz-root{
+    color-scheme: light;
+    --surface-1:#fcfcfb; --surface-2:#f4f4f1;
+    --text-primary:#0b0b0b; --text-secondary:#52514e; --text-muted:#7c7a74;
+    --grid:#e3e3de; --axis:#c9c8c2;
+    --series-1:#2a78d6;   /* weekly average */
+    --series-2:#eb6834;   /* daily weigh-ins */
+    --band:#1baf7a;       /* goal-rate band */
+  }
+  @media (prefers-color-scheme: dark){
+    :root:where(:not([data-theme="light"])) .viz-root{
+      color-scheme: dark;
+      --surface-1:#1a1a19; --surface-2:#242422;
+      --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#94938a;
+      --grid:#33332f; --axis:#4a4a45;
+      --series-1:#3987e5; --series-2:#d95926; --band:#199e70;
+    }
+  }
+  :root[data-theme="dark"] .viz-root{
+    color-scheme: dark;
+    --surface-1:#1a1a19; --surface-2:#242422;
+    --text-primary:#ffffff; --text-secondary:#c3c2b7; --text-muted:#94938a;
+    --grid:#33332f; --axis:#4a4a45;
+    --series-1:#3987e5; --series-2:#d95926; --band:#199e70;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--surface-1,#fcfcfb);
+       font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .viz-root{background:var(--surface-1);color:var(--text-primary);
+            max-width:1000px;margin:0 auto;padding:28px 22px 40px}
+  h1{font-size:19px;font-weight:650;margin:0 0 4px;letter-spacing:-.01em}
+  .sub{color:var(--text-secondary);font-size:13px;margin:0 0 22px}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:24px}
+  .tile{background:var(--surface-2);border-radius:10px;padding:13px 15px}
+  .tile .lab{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:5px}
+  .tile .val{font-size:23px;font-weight:640;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .tile .note{font-size:11.5px;color:var(--text-secondary);margin-top:3px}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;align-items:center;margin:0 0 10px;font-size:12.5px;color:var(--text-secondary)}
+  .key{display:inline-flex;align-items:center;gap:7px}
+  .sw{width:13px;height:13px;border-radius:3px;flex:0 0 auto}
+  .chart{position:relative}
+  svg{display:block;width:100%;height:auto;overflow:visible}
+  .gl{stroke:var(--grid);stroke-width:1}
+  .ax{stroke:var(--axis);stroke-width:1}
+  .tk{fill:var(--text-muted);font-size:11px;font-variant-numeric:tabular-nums}
+  .dl{fill:var(--text-primary);font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .1s;
+       background:var(--surface-1);border:1px solid var(--axis);border-radius:8px;
+       padding:8px 11px;font-size:12.5px;box-shadow:0 4px 14px rgba(0,0,0,.14);
+       white-space:nowrap;z-index:5}
+  .tip b{font-variant-numeric:tabular-nums}
+  .tip .r{display:flex;align-items:center;gap:7px;margin-top:3px;color:var(--text-secondary)}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px}
+  th,td{text-align:right;padding:7px 10px;border-bottom:1px solid var(--grid);font-variant-numeric:tabular-nums}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--text-secondary);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+  details{margin-top:26px}
+  summary{cursor:pointer;color:var(--text-secondary);font-size:13px;padding:5px 0}
+  .fast{color:var(--series-2);font-weight:600}
+  .ok{color:var(--band);font-weight:600}
+  .cap{font-size:12px;color:var(--text-muted);margin-top:14px;line-height:1.55}
+</style>
+</head>
+<body>
+<div class="viz-root" data-palette="#2a78d6,#eb6834">
+
+  <h1>Weight trend — 63 days of cut</h1>
+  <p class="sub">7 Jun 2026 (pre-diet week average) through 8 Aug 2026 · 26 weigh-ins, ~5.5 per week</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="lab">Total change</div><div class="val">−10.35 lb</div>
+      <div class="note">145.6 → 135.25</div></div>
+    <div class="tile"><div class="lab">Rate, last 33 days</div><div class="val">0.99 lb/wk</div>
+      <div class="note">95% CI 0.80 – 1.18</div></div>
+    <div class="tile"><div class="lab">Goal band</div><div class="val">0.7 – 0.9</div>
+      <div class="note">you are above it</div></div>
+    <div class="tile"><div class="lab">Scale noise</div><div class="val">±0.71 lb</div>
+      <div class="note">about the trend line</div></div>
+  </div>
+
+  <div class="legend">
+    <span class="key"><span class="sw" style="background:var(--series-1)"></span>Weekly average</span>
+    <span class="key"><span class="sw" style="background:var(--series-2)"></span>Daily weigh-in</span>
+    <span class="key"><span class="sw" style="background:var(--band);opacity:.3"></span>0.7–0.9 lb/wk goal corridor</span>
+  </div>
+
+  <div class="chart" id="chart">
+    <svg id="svg" viewBox="0 0 940 400" role="img"
+         aria-label="Weight trend from 145.6 lb on 7 June to 135.25 lb week average on 8 August, falling about 1 lb per week.">
+      <g id="layers"></g>
+    </svg>
+    <div class="tip" id="tip"></div>
+  </div>
+
+  <p class="cap" id="cap"></p>
+
+  <details>
+    <summary>Weekly table</summary>
+    <table id="tbl"><thead><tr><th>Week beginning</th><th>Weigh-ins</th><th>Average lb</th><th>Change</th><th>lb/wk</th><th>vs band</th></tr></thead><tbody></tbody></table>
+  </details>
+
+</div>
+
+<script>
+const DAILY=[["2026-07-07",139.6],["2026-07-08",139.6],["2026-07-09",138.4],["2026-07-11",138.6],["2026-07-12",137.8],["2026-07-14",138.2],["2026-07-15",138.4],["2026-07-16",138.8],["2026-07-18",138.0],["2026-07-19",137.0],["2026-07-20",137.4],["2026-07-22",137.6],["2026-07-23",136.5],["2026-07-25",136.0],["2026-07-27",135.2],["2026-07-28",135.6],["2026-07-29",135.6],["2026-07-30",135.8],["2026-07-31",135.7],["2026-08-01",135.4],["2026-08-02",134.2],["2026-08-04",134.3],["2026-08-05",136.0],["2026-08-06",136.6],["2026-08-07",135.2],["2026-08-08",135.2]];
+const WEEKLY=[["2026-06-07",145.60,1],["2026-07-05",139.05,4],["2026-07-12",138.24,5],["2026-07-19",136.90,5],["2026-07-26",135.55,6],["2026-08-02",135.25,6]];
+
+const W=940,H=400,M={t:18,r:64,b:44,l:52};
+const iw=W-M.l-M.r, ih=H-M.t-M.b;
+const D=s=>new Date(s+"T00:00:00Z");
+const x0=D("2026-06-04").getTime(), x1=D("2026-08-12").getTime();
+const y0=132, y1=147;
+const X=t=>M.l+(t-x0)/(x1-x0)*iw;
+const Y=v=>M.t+(y1-v)/(y1-y0)*ih;
+const g=document.getElementById("layers");
+const NS="http://www.w3.org/2000/svg";
+const el=(n,a={})=>{const e=document.createElementNS(NS,n);for(const k in a)e.setAttribute(k,a[k]);return e;};
+
+// ---- goal corridor: anchored at the first real weekly average, 0.7-0.9 lb/wk ----
+const aT=D(WEEKLY[1][0]).getTime(), aV=WEEKLY[1][1];
+const eT=D("2026-08-12").getTime();
+const dW=(eT-aT)/(7*864e5);
+const band=el("path",{d:`M${X(aT)},${Y(aV)} L${X(eT)},${Y(aV-0.7*dW)} L${X(eT)},${Y(aV-0.9*dW)} Z`,
+  fill:"var(--band)","fill-opacity":".16"});
+g.appendChild(band);
+
+// ---- grid + y axis ----
+for(let v=132;v<=146;v+=2){
+  g.appendChild(el("line",{x1:M.l,x2:M.l+iw,y1:Y(v),y2:Y(v),class:"gl"}));
+  const t=el("text",{x:M.l-9,y:Y(v)+4,class:"tk","text-anchor":"end"});t.textContent=v;g.appendChild(t);
+}
+g.appendChild(el("line",{x1:M.l,x2:M.l+iw,y1:Y(y0),y2:Y(y0),class:"ax"}));
+// ---- x ticks ----
+["2026-06-07","2026-06-21","2026-07-05","2026-07-19","2026-08-02"].forEach(s=>{
+  const t=el("text",{x:X(D(s).getTime()),y:H-M.b+20,class:"tk","text-anchor":"middle"});
+  t.textContent=D(s).toLocaleDateString("en-US",{month:"short",day:"numeric",timeZone:"UTC"});
+  g.appendChild(t);
+});
+
+// ---- gap notice between anchor and daily series ----
+g.appendChild(el("line",{x1:X(D("2026-06-07").getTime()),x2:X(D("2026-07-05").getTime()),
+  y1:Y(145.6),y2:Y(139.05),stroke:"var(--series-1)","stroke-width":2,
+  "stroke-dasharray":"5 4","stroke-opacity":".45"}));
+const gl=el("text",{x:X(D("2026-06-21").getTime()),y:Y(142.0)-10,class:"tk","text-anchor":"middle"});
+gl.textContent="no weigh-ins logged";g.appendChild(gl);
+
+// ---- trend line over the daily series ----
+const t0=D(DAILY[0][0]).getTime();
+const slope=-0.1412, icept=139.142;
+const tv=t=>icept+slope*((t-t0)/864e5);
+g.appendChild(el("line",{x1:X(t0),x2:X(D("2026-08-08").getTime()),
+  y1:Y(tv(t0)),y2:Y(tv(D("2026-08-08").getTime())),
+  stroke:"var(--text-secondary)","stroke-width":1.5,"stroke-dasharray":"2 3","stroke-opacity":".7"}));
+
+// ---- daily dots ----
+DAILY.forEach(([d,v])=>{
+  g.appendChild(el("circle",{cx:X(D(d).getTime()),cy:Y(v),r:4,
+    fill:"var(--series-2)","fill-opacity":".8",stroke:"var(--surface-1)","stroke-width":2}));
+});
+
+// ---- weekly average line (solid, from first real week) ----
+const pts=WEEKLY.slice(1).map(([d,v])=>[X(D(d).getTime()),Y(v)]);
+g.appendChild(el("path",{d:"M"+pts.map(p=>p.join(",")).join(" L "),fill:"none",
+  stroke:"var(--series-1)","stroke-width":2.5,"stroke-linecap":"round"}));
+WEEKLY.forEach(([d,v],i)=>{
+  g.appendChild(el("circle",{cx:X(D(d).getTime()),cy:Y(v),r:i===0?5:5.5,
+    fill:i===0?"var(--surface-1)":"var(--series-1)",stroke:"var(--series-1)","stroke-width":2.5}));
+});
+// direct labels: first and last only
+[[0,-14],[WEEKLY.length-1,-15]].forEach(([i,dy])=>{
+  const [d,v]=WEEKLY[i];
+  const t=el("text",{x:X(D(d).getTime()),y:Y(v)+dy,class:"dl","text-anchor":i===0?"start":"middle"});
+  t.textContent=v.toFixed(1);g.appendChild(t);
+});
+// band end label
+const bl=el("text",{x:X(eT)+6,y:Y(aV-0.8*dW)+4,class:"tk"});
+bl.textContent="goal";g.appendChild(bl);
+
+// ---- hover ----
+const tip=document.getElementById("tip"), chart=document.getElementById("chart"), svg=document.getElementById("svg");
+const cross=el("line",{y1:M.t,y2:M.t+ih,stroke:"var(--axis)","stroke-width":1,opacity:0});
+g.appendChild(cross);
+const ALL=[...DAILY.map(([d,v])=>({d,v,k:"Daily weigh-in",c:"var(--series-2)"})),
+           ...WEEKLY.map(([d,v,n])=>({d,v,k:"Weekly average"+(n?` (${n} weigh-ins)`:""),c:"var(--series-1)"}))];
+svg.addEventListener("pointermove",e=>{
+  const r=svg.getBoundingClientRect(), sx=(e.clientX-r.left)/r.width*W, sy=(e.clientY-r.top)/r.height*H;
+  let best=null,bd=1e9;
+  ALL.forEach(o=>{const dx=X(D(o.d).getTime())-sx, dy=Y(o.v)-sy, dd=dx*dx+dy*dy;
+    if(dd<bd){bd=dd;best=o;}});
+  if(!best||bd>2600){tip.style.opacity=0;cross.setAttribute("opacity",0);return;}
+  const px=X(D(best.d).getTime()), py=Y(best.v);
+  cross.setAttribute("x1",px);cross.setAttribute("x2",px);cross.setAttribute("opacity",".55");
+  tip.innerHTML=`<b>${D(best.d).toLocaleDateString("en-US",{month:"short",day:"numeric",timeZone:"UTC"})}</b>`+
+    `<div class="r"><span class="sw" style="width:10px;height:10px;border-radius:2px;background:${best.c}"></span>${best.k}: <b>${best.v.toFixed(1)} lb</b></div>`;
+  tip.style.opacity=1;
+  const cr=chart.getBoundingClientRect(), sc=cr.width/W;
+  let L=px*sc+14; if(L+180>cr.width) L=px*sc-180;
+  tip.style.left=Math.max(0,L)+"px"; tip.style.top=Math.max(0,py*sc-20)+"px";
+});
+svg.addEventListener("pointerleave",()=>{tip.style.opacity=0;cross.setAttribute("opacity",0);});
+
+// ---- caption + table ----
+document.getElementById("cap").textContent=
+  "Dotted grey line is the least-squares trend through the 26 daily weigh-ins: 0.99 lb/wk. The green corridor "+
+  "is 0.7–0.9 lb/wk projected from the 5 Jul weekly average. The trend exits through the bottom of the "+
+  "corridor (134.6 lb on 8 Aug against the corridor's fast edge of 134.7) — weight is coming off slightly "+
+  "faster than the goal band, not slower. The 2–8 Aug flat spot is 0.7 standard errors: indistinguishable "+
+  "from scale noise. A 134.2 → 136.6 swing in four days would need a 2,100 kcal/day surplus to be real food.";
+const tb=document.querySelector("#tbl tbody");
+let prev=null;
+WEEKLY.forEach(([d,v,n],i)=>{
+  let chg="—",rate="—",cls="",vs="—";
+  if(prev){
+    const gap=(D(d)-D(prev[0]))/(7*864e5), r=(prev[1]-v)/gap;
+    chg=(v-prev[1]).toFixed(2); rate=r.toFixed(2);
+    if(r>0.9){cls="fast";vs="above band";} else if(r<0.7){cls="";vs="below band";} else {cls="ok";vs="in band";}
+    if(gap>1) vs+=` · ${gap.toFixed(0)}wk gap`;
+  }
+  const tr=document.createElement("tr");
+  tr.innerHTML=`<td>${D(d).toLocaleDateString("en-US",{month:"short",day:"numeric",timeZone:"UTC"})}</td>`+
+    `<td>${n}</td><td>${v.toFixed(2)}</td><td>${chg}</td><td class="${cls}">${rate}</td><td class="${cls}">${vs}</td>`;
+  tb.appendChild(tr); prev=[d,v];
+});
+</script>
+</body>
+</html>
