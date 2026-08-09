@@ -1,0 +1,6 @@
+Macro,Lower,Upper,Severity,EffectiveFrom
+Calories,1200,2000,,
+Protein,120,150,,
+Carbs,150,220,,
+Fat,40,55,danger,
+Weight Loss,0.7,0.9,,

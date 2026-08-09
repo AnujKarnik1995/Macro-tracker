@@ -18,10 +18,10 @@ Compares 13 groups: `computeTdee`, `typicalBurn`, `readBurn`, `readTargetConfig`
 Summary contents after 11 write calls, per-date duplicate-row counts, and Summary after
 `rebuildAllSummary`. Each group runs under **two date regimes** (see below).
 
-**Fixtures.** `fixtures/summary.csv` is a real export. The Tracker fixture is synthetic and
+**Fixtures.** `fixtures/summary.csv` is a **synthetic** fixture (no real data). The Tracker fixture is synthetic and
 deliberately nasty — mixed `Date`/string dates in one column, two weigh-ins on one day, two burn
 sessions on one day, a zero weight, and junk text in the cal/weight/burn cells. None of that exists
-in the real export and all of it is reachable in production.
+in the summary fixture and all of it is reachable in production.
 
 **Why two date regimes.** Sheets hands back a date cell as a `Date` at **midnight in the spreadsheet
 timezone**, and `Utilities.formatDate` converts back with that same timezone. An earlier version of
@@ -54,7 +54,7 @@ Checks:
 
 **Two differences are expected and are not bugs** — they are facts about where data lives:
 
-- **`2026-06-07` is dropped.** The 145.6 lb pre-diet anchor exists only in Summary, never in Tracker,
+- **The pre-diet anchor row is dropped.** The pre-diet anchor weigh-in exists only in Summary, never in Tracker,
   so any rebuild deletes it. Submit it as a back-dated weigh-in to make it durable.
 - **The burn column is restored.** Burn lives in Tracker (and in Form responses), so clearing it in
   Summary alone is undone by the next rebuild.

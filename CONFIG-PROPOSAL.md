@@ -122,8 +122,8 @@ have shipped a machine that starves whoever picks an aggressive date. Make it an
 Report *"1 Oct needs 1.6 lb/wk — outside your 0.7–0.9 band; either move the date to 12 Nov or accept
 a faster rate"* and let the human decide. Never silently obey the date.
 
-This matters for you specifically: at 135 lb you are already running 0.99 lb/wk, above your own band.
-A deadline-driven deficit would push you further.
+This matters in practice: someone already at the low end of their range can be running above their own
+target rate, and a deadline-driven deficit would only push them further.
 
 ## Deliberately NOT included
 

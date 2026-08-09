@@ -175,13 +175,43 @@ as `EffectiveFrom` on the `Floor` and `Deficit` rows — earlier days stay on th
 Publish each tab: **File → Share → Publish to web → that tab → CSV → Publish**, and copy each
 link (`.../pub?gid=...&single=true&output=csv`).
 
-### 2. Apps Script
-Paste `backend/Code.gs` into the Sheet's Apps Script editor. Add the `Floor`/`Deficit` rows,
-run `updateTargetsToday` once, and create the daily targets trigger (`createTargetsTrigger`, ~14:30)
-so each new day gets its targets written. Optionally also run `createNightlyRebuildTrigger` (~00:45)
-to rebuild `Tracker`+`Summary` from the raw form responses each night.
+### 2. Apps Script + the logging Form
+Paste `backend/Code.gs` into the Sheet's Apps Script editor. Then, from the editor:
+
+1. Run **`createLoggingForm()`** once. It creates the **"Macro Log"** Form (a single `payload`
+   question), links its responses to this spreadsheet (the `Form responses 1` tab), and installs the
+   on-submit trigger to `processMacroPayload`. The execution log prints the Form's fill-in and edit
+   URLs. (First run prompts for authorization.)
+2. Add the `Floor`/`Deficit` rows to `Targets`, then run **`updateTargetsToday`** once.
+3. Create the daily targets trigger (**`createTargetsTrigger`**, ~14:30) so each new day gets its
+   targets written. Optionally also run **`createNightlyRebuildTrigger`** (~00:45) to rebuild
+   `Tracker`+`Summary` from the raw form responses each night.
+
+**Logging payload.** Each submission is one **JSON** value in the `payload` question — a single object
+or an array of objects:
+
+```json
+{"cal": 600, "p": 40, "c": 55, "f": 18, "meal": "Lunch", "details": "chicken & rice"}   // a meal
+{"weight": 152.4}                                                                        // a weigh-in
+[{"cal": 220, "p": 8, "c": 30, "f": 9, "meal": "Snack"}, {"weight": 152.4}]              // several at once
+```
+
+`cal`/`p`/`c`/`f` make a meal; `weight` makes a weigh-in; `meal`/`details` are optional labels; add
+`"date":"DD/MM/YYYY"` to back-date. `burn` is accepted only if the training-burn flex is re-enabled
+(off by default). Unknown or empty items are ignored. (The payload is plain JSON, so you can type it,
+keep snippets handy, or have an assistant turn "180 g tofu, 1 cup rice" into the object for you.)
+
+**Prefer to wire the Form by hand?** Create a Form with one **Paragraph** question titled `payload`;
+**Responses → Link to Sheets →** this spreadsheet; then **Triggers → Add Trigger →**
+`processMacroPayload`, event source **From spreadsheet**, type **On form submit**.
+
+> The responses tab must be named `Form responses 1` (the `RESPONSES_TAB` constant); rename the tab or
+> the constant if your locale names it differently. Keep the single `payload` question and don't enable
+> "collect email" — the parser reads the payload from the second response column.
 
 ### 3. Build + add the widget
+0. (Optional) Set your goal date, label, phase, and green-day start in **`config.properties`** at the
+   repo root — these bake into the app via `BuildConfig`. If the file is missing, neutral defaults are used.
 1. Open the folder in **Android Studio** (Hedgehog or newer); let Gradle sync; run on device.
 2. Long-press home → **Widgets** → **Macro Widget** → drag on a tile.
 3. Paste the **Summary URL** and **Targets URL** → **Save** (remembered for next time).
@@ -196,7 +226,6 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `MacroModel.kt` — `LogEntry`, `MacroType`, `Target`, `DatedTarget`, `TargetHistory` (frozen greens), `WeightTarget`.
 - `MacroCalculator.kt` — today's row, weekly average (incl. the week's mean per-day band used to color the rings), successful-day tally, `effectiveTargets` (per-day center ± width, static fallback).
 - `TdeeCalculator.kt` — back-calculated TDEE + loss rate over the trailing window; readiness gate.
-- `DynamicTargetCalculator.kt` — **unused**. An app-side reference implementation that nothing calls; the production compute is `Code.gs`. Slated for deletion (see ASSUMPTIONS.md §17).
 - `WeightCalculator.kt` — weekly-average weight, week-over-week rate, in-zone, current-week band.
 - `ColorRamp.kt` — graded palettes and the zone-color function.
 - `ChartRenderer.kt` / `EnergyRenderer.kt` / `WeightRenderer.kt` — the three page bitmaps.
@@ -209,10 +238,11 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 
 ## Docs
 - `ASSUMPTIONS.md` — every tuning decision, why it exists, what it costs, and how to check it.
-- `CONFIG-PROPOSAL.md` — proposed `Config` sheet for making the dials configurable.
+- `CONFIG-PROPOSAL.md` — proposed `Config` sheet for making the dials configurable (design note; not yet built).
 - `backend/test/README.md` — how to run the offline test rig.
-- `SPEC-frozen-green-days.md` — the dated-target scoring rule.
-- `macro_app_upgrade_roadmap.md` — design history and what's next.
+
+## License
+MIT — see [`LICENSE`](LICENSE). Personal figures in the docs are illustrative example data, not real measurements.
 
 ## Note
 The pure data logic (CSV parsing, date/week handling, TDEE, dynamic targets, weight/zone grading)

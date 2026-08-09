@@ -186,12 +186,11 @@ class ChartWorker(context: Context, params: WorkerParameters) :
 
     companion object {
         const val KEY_WIDGET_IDS = "widget_ids"
-        // Countdown target. Change here if the goal date moves.
-        private val GOAL_DATE: LocalDate = LocalDate.of(2026, 10, 7)
-        private const val GOAL_LABEL = "Oct 7"
-        // Challenge start — denominator of the "green days / total days" tally.
-        private val CHALLENGE_START: LocalDate = LocalDate.of(2026, 6, 15)
-        // Phase label shown to the left of "Today".
-        private const val PHASE_LABEL = "Cutting Phase"
+        // Personal targets come from /config.properties, baked into BuildConfig at build time
+        // (see app/build.gradle.kts). Change the values there, not here.
+        private val GOAL_DATE: LocalDate = LocalDate.parse(BuildConfig.GOAL_DATE)          // countdown target
+        private val GOAL_LABEL: String = BuildConfig.GOAL_LABEL
+        private val CHALLENGE_START: LocalDate = LocalDate.parse(BuildConfig.CHALLENGE_START) // green-day tally start
+        private val PHASE_LABEL: String = BuildConfig.PHASE_LABEL                          // shown left of "Today"
     }
 }

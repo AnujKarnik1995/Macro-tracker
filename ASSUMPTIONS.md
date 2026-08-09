@@ -1,5 +1,8 @@
 # Assumptions & Decisions Log
 
+> **Note (open-source copy):** all bodyweight and personal-measurement figures below are illustrative example data, not real measurements. Deltas, rates, and the design rationale are preserved; absolute values have been shifted.
+
+
 Every number in this system rests on a judgement call. Most of them were made silently. This file
 is where they get written down, so a future change doesn't quietly undo a deliberate choice.
 
@@ -254,7 +257,7 @@ training logged after the 14:30 trigger still counts.
 | 2 | scale noise SD, persistence | **RESOLVED 9 Aug: 0.71 lb, τ ≈ 1.3 days.** Earlier 1.5 lb / τ=10d was wrong |
 | 3 | adaptive thermogenesis −12 kcal/lb lost | still literature-based, unverified |
 | 4 | logging accuracy consistent over time | still assumed, unverified |
-| 5 | early fast-loss phase outside the window | plausible — 145.6 → 139.05 happened before 5 Jul, outside a 42-day window as of Aug |
+| 5 | early fast-loss phase outside the window | plausible — 195.6 → 189.05 happened before 5 Jul, outside a 42-day window as of Aug |
 
 ## Measured state, 9 Aug 2026
 
@@ -262,7 +265,7 @@ training logged after the 14:30 trigger still counts.
 | --- | --- |
 | TDEE | **≈ 2250 kcal/day** |
 | correct target at deficit 425 | **≈ 1825 kcal** |
-| weight | 145.6 → 135.25 lb, −10.35 lb in ~8.7 weeks |
+| weight | 195.6 → 185.25 lb, −10.35 lb in ~8.7 weeks |
 | floor headroom | +200 kcal — has never bound |
 
 ### The overshoot event, 2 Aug 2026
@@ -279,7 +282,7 @@ original question was actually about:
 **Cause.** On 3 Aug the 20-day window measured a 1.45 lb/wk slope and inferred TDEE = 2443, ~195
 above truth. It then prescribed up to 2312 kcal. The inflated slope came from **endpoint leverage**:
 in a 20-day OLS the four edge readings carry **58%** of the slope while the four middle readings carry
-3%. The window opened on two water highs (138.4, 138.8) and closed on a water low (134.2 on 2 Aug,
+3%. The window opened on two water highs (188.4, 188.8) and closed on a water low (184.2 on 2 Aug,
 14.2% leverage on its own).
 
 **The return swing.** By 8 Aug the same 20-day estimator reads TDEE ≈ 2107 — a **336 kcal round trip
@@ -413,16 +416,16 @@ some slack — which argues for a *smaller* deficit, i.e. 375. The move went the
 **Mechanism note.** Walking does not justify a smaller deficit. Walking is already inside the measured
 TDEE (energy balance captures it by construction — §5), so it changes **how much food a given deficit
 allows**, not which deficit is appropriate. Deficit maps one-to-one onto rate regardless of activity.
-The valid reasons to prefer 375 are lean-mass retention at 135 lb and adherence headroom.
+The valid reasons to prefer 375 are lean-mass retention at 185 lb and adherence headroom.
 
 **At the measured TDEE of 2250:**
 
 | deficit | target intake | rate | 60-day loss | end weight |
 | --- | --- | --- | --- | --- |
-| 375 | 1875 | 0.75 lb/wk | 6.4 lb | 128.8 |
-| 400 | 1850 | 0.80 lb/wk | 6.9 lb | 128.4 |
-| 425 | 1825 | 0.85 lb/wk | 7.3 lb | 128.0 |
-| *effective, static phase* | *1693* | *0.99 lb/wk* | *8.5 lb* | *126.8* |
+| 375 | 1875 | 0.75 lb/wk | 6.4 lb | 178.8 |
+| 400 | 1850 | 0.80 lb/wk | 6.9 lb | 178.4 |
+| 425 | 1825 | 0.85 lb/wk | 7.3 lb | 178.0 |
+| *effective, static phase* | *1693* | *0.99 lb/wk* | *8.5 lb* | *176.8* |
 
 Note the last row: the static plan was running an effective deficit near **557**, so correcting the
 TDEE estimate **slows the rate whichever deficit is chosen**. The 0.99 lb/wk was accidental
@@ -749,9 +752,9 @@ information.
 `rebuildAllSummary(real Tracker)` reproduces the live Summary exactly — every `cal`, `p`, `c`, `f`,
 `weight` and `t_*` cell across all 55 shared dates — with **two expected differences**:
 
-1. **`2026-06-07` (145.6 lb) is dropped.** It exists only in Summary, never in Tracker. Any rebuild
+1. **`2026-06-07` (195.6 lb) is dropped.** It exists only in Summary, never in Tracker. Any rebuild
    deletes it, and total-progress silently drops from −10.4 lb to −4.4 lb. Durable fix: submit it as
-   a back-dated weigh-in (`{"weight": 145.6, "date": "07/06/2026"}`) so it enters via Form responses.
+   a back-dated weigh-in (`{"weight": 195.6, "date": "07/06/2026"}`) so it enters via Form responses.
 2. **The burn column is restored** — all 21 values including 4 Aug (454), 5 Aug (411), 7 Aug (537).
 
 ### Item 2 is operationally urgent

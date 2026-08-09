@@ -633,3 +633,36 @@ function createTargetsTrigger() { installDailyTrigger("updateTargetsToday", 14, 
 
 /** Run ONCE from the editor: nightly ~00:45 rebuild of Tracker + Summary from the form responses. */
 function createNightlyRebuildTrigger() { installDailyTrigger("rebuildTrackerFromResponses", 0, 45); }
+
+/**
+ * Run ONCE from the editor to bootstrap the logging Form.
+ * Creates the "Macro Log" Form (a single `payload` question that takes a JSON string), links its
+ * responses to THIS spreadsheet (the `Form responses 1` tab that `RESPONSES_TAB` expects), and
+ * installs the on-submit trigger to `processMacroPayload`. The submit event is spreadsheet-bound,
+ * so `e.values[1]` carries the payload — matching how `processMacroPayload` reads it.
+ *
+ * Re-running creates ANOTHER Form; the trigger is de-duplicated but the Form is not. First run
+ * prompts for Forms + trigger authorization. Prints the fill-in and edit URLs to the log.
+ */
+function createLoggingForm() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+  const form = FormApp.create("Macro Log");
+  form.setDescription(
+    'Submit ONE JSON payload per entry. Examples:\n' +
+    'meal:     {"cal":600,"p":40,"c":55,"f":18,"meal":"Lunch","details":"chicken & rice"}\n' +
+    'weigh-in: {"weight":152.4}\n' +
+    'Add "date":"DD/MM/YYYY" to back-date. An array of objects logs several at once.');
+  form.addParagraphTextItem().setTitle("payload").setRequired(true);
+
+  // Responses land in this spreadsheet as the "Form responses 1" tab (RESPONSES_TAB).
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
+
+  // Spreadsheet-bound on-submit trigger → processMacroPayload (provides e.values). De-dup first.
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === "processMacroPayload") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("processMacroPayload").forSpreadsheet(ss).onFormSubmit().create();
+
+  Logger.log("Form created.\n  Fill in: " + form.getPublishedUrl() + "\n  Edit:    " + form.getEditUrl());
+}
