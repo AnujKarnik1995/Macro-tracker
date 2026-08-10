@@ -126,12 +126,17 @@ workout delta contributes nothing to the daily target. It's off because the hist
 watch "active calories" for resistance work (~2× a realistic net cost), and that training is already
 captured inside the measured TDEE — so nothing is lost by ignoring it (ASSUMPTIONS.md §24).
 
+The same flag picks the daily targets-trigger time via **`createTargetsTrigger`**: **off → ~03:00**
+(TDEE window ends yesterday; no same-day input to wait for), **on → ~14:30** (afternoon so same-day
+training can land). Flip the flag, then re-run `createTargetsTrigger()` once to move the live
+schedule.
+
 To re-enable, set `BURN_DELTA_ENABLED = true`, then run `rebuildTrackerFromResponses` (restores the
-burn rows) followed by `rebuildAllSummary`. When on: burn is submitted as `{"burn": 320}` through the
-Form (add `"date": "DD/MM/YYYY"` to back-date); multiple entries for one date are **summed**; a day
-with nothing logged is a **rest day worth 0** so the delta averages to zero across the window; and
-submitting burn re-runs that day's target immediately, so training logged after the 14:30 trigger
-still lands.
+burn rows), `rebuildAllSummary`, and `createTargetsTrigger` once. When on: burn is submitted as
+`{"burn": 320}` through the Form (add `"date": "DD/MM/YYYY"` to back-date); multiple entries for one
+date are **summed**; a day with nothing logged is a **rest day worth 0** so the delta averages to
+zero across the window; and submitting burn re-runs that day's target immediately, so training logged
+after the afternoon trigger still lands.
 
 There is no phone or watch integration: nothing in the app reads health data. Basal/BMR is not
 collected and is not needed — the TDEE regression measures total expenditure from intake and the
@@ -183,9 +188,10 @@ Paste `backend/Code.gs` into the Sheet's Apps Script editor. Then, from the edit
    on-submit trigger to `processMacroPayload`. The execution log prints the Form's fill-in and edit
    URLs. (First run prompts for authorization.)
 2. Add the `Floor`/`Deficit` rows to `Targets`, then run **`updateTargetsToday`** once.
-3. Create the daily targets trigger (**`createTargetsTrigger`**, ~14:30) so each new day gets its
-   targets written. Optionally also run **`createNightlyRebuildTrigger`** (~00:45) to rebuild
-   `Tracker`+`Summary` from the raw form responses each night.
+3. Create the daily targets trigger (**`createTargetsTrigger`**). Schedule follows
+   `BURN_DELTA_ENABLED`: **~03:00** while burn flex is off (current), **~14:30** when it is on.
+   Re-run after flipping the flag. Optionally also run **`createNightlyRebuildTrigger`** (~00:45)
+   to rebuild `Tracker`+`Summary` from the raw form responses each night.
 
 **Logging payload.** Each submission is one **JSON** value in the `payload` question — a single object
 or an array of objects:

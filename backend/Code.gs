@@ -24,6 +24,7 @@ const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window 
 // false = the workout delta is switched off end to end. Burn payloads are not ingested, existing
 // burn values are not read, and Summary col H is written blank — so clearing it survives a rebuild,
 // which clearing the cells by hand does not (the values live in Form responses -> Tracker -> Summary).
+// Also selects the daily targets-trigger time via createTargetsTrigger (off → ~03:00, on → ~14:30).
 //
 // Off because the historical numbers are watch "active calories" for resistance work, averaging 465
 // per session — roughly 2x a realistic net cost. Mixed with hand-entered figures they produced a
@@ -31,8 +32,8 @@ const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window 
 // already inside the measured TDEE (§5), so nothing is lost by ignoring it.
 //
 // Setting this back to true re-enables everything, but Tracker will be missing the burn rows: run
-// rebuildTrackerFromResponses to restore them from the response log, then rebuildAllSummary.
-// ASSUMPTIONS.md §24.
+// rebuildTrackerFromResponses to restore them from the response log, then rebuildAllSummary, then
+// createTargetsTrigger once so the daily schedule moves to ~14:30. ASSUMPTIONS.md §24.
 const BURN_DELTA_ENABLED = false;
 
 // Basal/BMR is never processed at all — not gated, removed. It was only ever written to a column
@@ -73,8 +74,9 @@ function processMacroPayload(e) {
     const ctx = refreshSummary(ss, want);
 
     // A burn entry changes that day's workout delta, so re-derive its targets now rather than waiting
-    // for the 14:30 trigger — training logged after 14:30 would otherwise never reach the target it
-    // was meant to adjust. ctx.sum already reflects the burn just written.
+    // for the afternoon targets trigger — training logged after that run would otherwise never reach
+    // the target it was meant to adjust. ctx.sum already reflects the burn just written.
+    // (No-op while BURN_DELTA_ENABLED is false: isBurnEntry drops burn items, so want.burn stays empty.)
     Object.keys(want.burn).forEach(d => updateDailyTargets(d, ctx));
 
   } catch (err) {
@@ -390,8 +392,8 @@ function updateTargetsToday() {
  *   t_carb = (anchor − 4·protein_center − 9·fat_center) / 4        (carbs are the plug)
  *   t_pro / t_fat = fixed band centers from config; t_cal = anchor (display/context only).
  * Leaves the row's I-L untouched (widget then falls back to the static bands) if the config
- * isn't complete or TDEE isn't ready. No training logged → burn 0 → negative delta vs the
- * all-days baseline, which is correct: a rest day costs less than an average day.
+ * isn't complete or TDEE isn't ready. When burn flex is on and no training is logged → burn 0 →
+ * negative delta vs the all-days baseline, which is correct: a rest day costs less than average.
  */
 function updateDailyTargets(dateStr, ctx) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -628,8 +630,17 @@ function installDailyTrigger(handler, hour, minute) {
   Logger.log(handler + " trigger installed (~" + hour + ":" + minute + ", script timezone).");
 }
 
-/** Run ONCE from the editor: daily ~14:30 recompute of today's targets. */
-function createTargetsTrigger() { installDailyTrigger("updateTargetsToday", 14, 30); }
+/**
+ * Run ONCE from the editor (and again after flipping BURN_DELTA_ENABLED): installs the daily
+ * updateTargetsToday trigger. Schedule follows the flag —
+ *   burn ON  → ~14:30 (same-day workout flex needs afternoon data)
+ *   burn OFF → ~03:00 (TDEE window ends yesterday; no same-day input to wait for)
+ * installDailyTrigger replaces any prior trigger on the same handler, so one re-run is enough.
+ */
+function createTargetsTrigger() {
+  if (BURN_DELTA_ENABLED) installDailyTrigger("updateTargetsToday", 14, 30);
+  else                    installDailyTrigger("updateTargetsToday", 3, 0);
+}
 
 /** Run ONCE from the editor: nightly ~00:45 rebuild of Tracker + Summary from the form responses. */
 function createNightlyRebuildTrigger() { installDailyTrigger("rebuildTrackerFromResponses", 0, 45); }

@@ -245,7 +245,8 @@ is no fallback API. Training calories are hand-entered through the Form.
 **Consequences handled.** Blank burn now means "rest day, 0 kcal" rather than "unknown" — matching
 the all-days baseline, so `avg(workout_delta) = 0` over the window. Multiple same-day entries are
 summed rather than overwriting. Submitting a burn entry re-runs that day's target immediately, so
-training logged after the 14:30 trigger still counts.
+training logged after the daily targets trigger still counts. When burn flex is on, that trigger
+is scheduled ~14:30 (`createTargetsTrigger`); when off, ~03:00 — see §24.
 
 ---
 
@@ -679,7 +680,7 @@ Pass 3 was split. This is the half whose fixtures are real; the rest is blocked 
 
 | operation | pass 2 | pass 3 |
 | --- | --- | --- |
-| daily 14:30 trigger | 5 | **2** |
+| daily targets trigger (`updateTargetsToday`) | 5 | **2** |
 | form submit — meal + weigh-in + burn + targets | 11 | **8** |
 
 `upsertSummary` **mutates `rows` to match what it wrote.** That is not tidiness — it is the fix for
@@ -774,17 +775,25 @@ target drops from ~1878 to ~1712. **The only durable control is a code-level swi
 
 ---
 
-## 24. `BURN_DELTA_ENABLED = false` — the workout flex is off  *(shipped 9 Aug 2026)*
+## 24. `BURN_DELTA_ENABLED = false` — the workout flex is off  *(shipped 9 Aug 2026; schedule follow-on)*
 
-**What.** One constant in `Code.gs`, gating every burn path end to end:
+**What.** One constant in `Code.gs`, gating every burn path end to end, and selecting the daily
+targets-trigger time:
 
-| site | when false |
-| --- | --- |
-| `isBurnEntry` | returns false, so `payloadItemToRow` drops burn items — no Tracker row written |
-| `aggregateTracker` | col J not read; `burnSeen` stays false |
-| `typicalBurn` / `readBurn` | return 0 without reading anything |
-| `updateDailyTargets` | `delta = 0`, computed without touching the burn columns |
-| `rebuildAllSummary` / `refreshSummary` | write Summary col H **blank** |
+| site | when false | when true |
+| --- | --- | --- |
+| `isBurnEntry` | returns false — burn items dropped, no Tracker row | burn payloads ingested |
+| `aggregateTracker` | col J not read; `burnSeen` stays false | sessions summed into burn |
+| `typicalBurn` / `readBurn` | return 0 without reading | all-days baseline / day's burn |
+| `updateDailyTargets` | `delta = 0` | `delta = today's burn − typical` |
+| `rebuildAllSummary` / `refreshSummary` | write Summary col H **blank** | write summed burn |
+| `createTargetsTrigger` | installs `updateTargetsToday` at **~03:00** | installs at **~14:30** |
+
+Target math stays in one place (`updateDailyTargets` / `updateTargetsToday`). The flag only chooses
+*when* the daily trigger fires: ~03:00 while off (TDEE window ends yesterday; nothing same-day to
+wait for), ~14:30 while on (afternoon so same-day training can land). Apps Script does not move the
+clock by itself — after flipping the flag, re-run `createTargetsTrigger()` once
+(`installDailyTrigger` replaces the prior handler trigger).
 
 **Why the flag rather than clearing cells.** Clearing col H by hand is not durable — the values live
 in `Form responses` → `Tracker` → `Summary`, so `rebuildAllSummary` restores them (§23 measured 21
@@ -815,8 +824,10 @@ intake-anchored TDEE cannot need it (§4). Payload items carrying only `basal` a
 `payloadItemToRow` (§23), so there is nothing left to switch.
 
 **Turning the flex back on** is one edit to `true`, but Tracker will be missing its burn rows by then:
-run `rebuildTrackerFromResponses` to restore them from the response log, then `rebuildAllSummary`.
-Nothing is lost — the response log is immutable and still holds all 21 burn entries.
+run `rebuildTrackerFromResponses` to restore them from the response log, then `rebuildAllSummary`,
+then `createTargetsTrigger` once so the daily schedule moves to ~14:30. Nothing is lost — the
+response log is immutable and still holds all 21 burn entries. Flipping back to `false` and
+re-running `createTargetsTrigger` returns the schedule to ~03:00.
 
 **This is `burn_delta_enabled` from `CONFIG-PROPOSAL.md`, realised as a constant** rather than a
 Config-sheet row. When the Config sheet lands it should move there, along with `burn_delta_gain` and
