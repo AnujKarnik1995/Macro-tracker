@@ -22,7 +22,8 @@ fun section(s: String) = println("\n$s")
 fun entry(date: String, gym: String? = null, cal: Float = 1900f) =
     LogEntry(LocalDate.parse(date), mapOf(MacroType.CALORIES to cal), null, null, null, gym)
 
-// Plan matching config.properties: 22 sessions, 17 Aug -> 7 Oct.
+// A fixture, not a mirror of config.properties: every expected value below was worked out by hand
+// against this start date, so moving GYM_START in config does not (and must not) change it.
 val START: LocalDate = LocalDate.parse("2026-08-17")
 val GOAL: LocalDate = LocalDate.parse("2026-10-07")
 const val TOTAL = 22

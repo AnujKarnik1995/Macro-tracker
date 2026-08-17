@@ -1,0 +1,133 @@
+<svg viewBox="0 0 1540 950" xmlns="http://www.w3.org/2000/svg" role="img" width="1200">
+<title>Energy page (Burn rate) geometry &#8212; overlapping before vs band budget after</title>
+<desc>The Energy page at 687x687px with the training block enabled. Left panel reproduces the old geometry, where the hero TDEE number's digits started 7.9px above the "Burn rate" title baseline and the gym headline cleared the day-dot halo by only 4.5px. Right panel is the shipped band budget: the tile is cut into disjoint bands, each line centred in its own band at a type size derived from that band, giving the hero 40px of clearance under the title.</desc>
+
+<rect x="0" y="0" width="1540" height="950" fill="#0d0e10"/>
+
+<!-- ============================= column captions ============================= -->
+<text x="40" y="44" font-family="sans-serif" font-size="30" font-weight="700" fill="#FF5A5A">BEFORE &#8212; overlapping</text>
+<text x="40" y="78" font-family="sans-serif" font-size="19" fill="#9AA0A6">free-floating fractions of a squeezed region;</text>
+<text x="40" y="102" font-family="sans-serif" font-size="19" fill="#9AA0A6">baselines set with no knowledge of glyph height</text>
+
+<text x="813" y="44" font-family="sans-serif" font-size="30" font-weight="700" fill="#15CF92">AFTER &#8212; band budget</text>
+<text x="813" y="78" font-family="sans-serif" font-size="19" fill="#9AA0A6">disjoint bands filling the usable height;</text>
+<text x="813" y="102" font-family="sans-serif" font-size="19" fill="#9AA0A6">each line centred in its own band, type sized from it</text>
+
+<!-- ############################################################ -->
+<!-- PANEL A: the old geometry                                    -->
+<!-- ############################################################ -->
+<g transform="translate(40,120)">
+  <rect x="0" y="0" width="687" height="687" rx="40" fill="#1b1c1e"/>
+
+  <!-- collision highlight: hero digits reach above the title baseline -->
+  <rect x="150" y="58.07" width="390" height="8.91" fill="#FF5A5A" fill-opacity="0.32"/>
+
+  <text x="343.5" y="66.00" text-anchor="middle" font-family="sans-serif" font-size="49" font-weight="700" fill="#FFFFFF">Burn rate</text>
+  <text x="343.5" y="140.15" text-anchor="middle" font-family="sans-serif" font-size="114" font-weight="700" fill="#FFFFFF">2,344</text>
+  <text x="343.5" y="185.15" text-anchor="middle" font-family="sans-serif" font-size="30" fill="#9AA0A6">kcal/day &#183; 16 weigh-ins</text>
+  <text x="343.5" y="218.01" text-anchor="middle" font-family="sans-serif" font-size="28.5" fill="#7C8288">Avg intake 1,694 kcal/day</text>
+  <text x="343.5" y="277.33" text-anchor="middle" font-family="sans-serif" font-size="45" font-weight="700" fill="#FFB300">1.3 lb/wk</text>
+
+  <rect x="75.92" y="337.47" width="535.17" height="13.20" rx="6" fill="#2B2B2B"/>
+  <rect x="218.63" y="333.87" width="71.35" height="20.40" rx="4" fill="#15CF92" fill-opacity="0.59"/>
+  <circle cx="432.70" cy="344.07" r="9" fill="#FFB300"/>
+  <text x="218.63" y="381.57" text-anchor="middle" font-family="sans-serif" font-size="23.4" fill="#1FE3A6">0.7</text>
+  <text x="289.98" y="381.57" text-anchor="middle" font-family="sans-serif" font-size="23.4" fill="#1FE3A6">0.9</text>
+
+  <text x="343.5" y="410.80" text-anchor="middle" font-family="sans-serif" font-size="28.5" font-weight="700" fill="#15CF92">Eat +250 kcal/day &#8594; 0.8 lb/wk</text>
+
+  <line x1="60.92" y1="447.66" x2="626.09" y2="447.66" stroke="#2B2B2B" stroke-width="2.2"/>
+  <text x="343.5" y="477.65" text-anchor="middle" font-family="sans-serif" font-size="21.6" font-weight="700" fill="#7C8288" letter-spacing="3.9">TRAINING</text>
+
+  <circle cx="210.90" cy="517.45" r="13" fill="#15CF92"/>
+  <circle cx="255.10" cy="517.45" r="13" fill="#2B2B2B"/>
+  <circle cx="299.30" cy="517.45" r="13" fill="#15CF92"/>
+  <circle cx="343.50" cy="517.45" r="13" fill="#2B2B2B"/>
+  <circle cx="387.70" cy="517.45" r="13" fill="#15CF92"/>
+  <circle cx="431.90" cy="517.45" r="13" fill="#2B2B2B"/>
+  <circle cx="476.10" cy="517.45" r="13" fill="#2B2B2B"/>
+  <circle cx="476.10" cy="517.45" r="20.80" fill="none" stroke="#7C8288" stroke-width="2.4" stroke-opacity="0.45"/>
+
+  <text x="343.5" y="566.52" text-anchor="middle" font-family="sans-serif" font-size="33" font-weight="700" fill="#15CF92">16 left &#183; 3.0 / wk</text>
+  <text x="343.5" y="603.05" text-anchor="middle" font-family="sans-serif" font-size="24" fill="#7C8288">Next: session A</text>
+
+  <circle cx="628.09" cy="640.61" r="26" fill="#20242B" stroke="#3C6FA5" stroke-width="1.82"/>
+  <text x="628.09" y="651.01" text-anchor="middle" font-family="sans-serif" font-size="31.2" fill="#AAB6C2">&#8635;</text>
+
+  <!-- annotations, kept inside the card -->
+  <line x1="545" y1="60" x2="600" y2="44" stroke="#FF5A5A" stroke-width="2"/>
+  <text x="665" y="38" text-anchor="end" font-family="sans-serif" font-size="21" font-weight="700" fill="#FF5A5A">&#8722;7.9px</text>
+
+  <line x1="480" y1="197.5" x2="588" y2="197.5" stroke="#FFB300" stroke-width="1.6" stroke-opacity="0.75"/>
+  <text x="596" y="204" font-family="sans-serif" font-size="19" fill="#FFB300">6.0px</text>
+
+  <line x1="470" y1="540.5" x2="588" y2="540.5" stroke="#FFB300" stroke-width="1.6" stroke-opacity="0.75"/>
+  <text x="596" y="547" font-family="sans-serif" font-size="19" fill="#FFB300">4.5px</text>
+</g>
+
+<!-- ############################################################ -->
+<!-- PANEL B: the shipped band budget                             -->
+<!-- ############################################################ -->
+<g transform="translate(813,120)">
+  <rect x="0" y="0" width="687" height="687" rx="40" fill="#1b1c1e"/>
+
+  <!-- band boundaries (review guides only; the renderer does not draw these) -->
+  <g stroke="#5AA9FF" stroke-width="1" stroke-opacity="0.22" stroke-dasharray="5 6">
+    <line x1="14" y1="17.00" x2="673" y2="17.00"/>
+    <line x1="14" y1="75.77" x2="673" y2="75.77"/>
+    <line x1="14" y1="186.78" x2="673" y2="186.78"/>
+    <line x1="14" y1="224.66" x2="673" y2="224.66"/>
+    <line x1="14" y1="262.53" x2="673" y2="262.53"/>
+    <line x1="14" y1="319.99" x2="673" y2="319.99"/>
+    <line x1="14" y1="365.70" x2="673" y2="365.70"/>
+    <line x1="14" y1="398.35" x2="673" y2="398.35"/>
+    <line x1="14" y1="441.45" x2="673" y2="441.45"/>
+    <line x1="14" y1="461.04" x2="673" y2="461.04"/>
+    <line x1="14" y1="492.38" x2="673" y2="492.38"/>
+    <line x1="14" y1="541.36" x2="673" y2="541.36"/>
+    <line x1="14" y1="587.07" x2="673" y2="587.07"/>
+    <line x1="14" y1="619.06" x2="673" y2="619.06"/>
+    <line x1="14" y1="670.00" x2="673" y2="670.00"/>
+  </g>
+
+  <text x="343.5" y="59.32" text-anchor="middle" font-family="sans-serif" font-size="35.91" font-weight="700" fill="#FFFFFF">Burn rate</text>
+  <text x="343.5" y="163.25" text-anchor="middle" font-family="sans-serif" font-size="88.81" font-weight="700" fill="#FFFFFF">2,344</text>
+  <text x="343.5" y="215.54" text-anchor="middle" font-family="sans-serif" font-size="27.27" fill="#9AA0A6">kcal/day &#183; 16 weigh-ins</text>
+  <text x="343.5" y="253.14" text-anchor="middle" font-family="sans-serif" font-size="26.51" fill="#7C8288">Avg intake 1,694 kcal/day</text>
+  <text x="343.5" y="306.16" text-anchor="middle" font-family="sans-serif" font-size="41.37" font-weight="700" fill="#FFB300">1.3 lb/wk</text>
+
+  <rect x="66.86" y="338.28" width="553.28" height="9.14" rx="4.57" fill="#2B2B2B"/>
+  <rect x="214.40" y="335.08" width="73.77" height="15.54" rx="3.89" fill="#15CF92" fill-opacity="0.59"/>
+  <circle cx="435.71" cy="342.85" r="11.88" fill="#FFB300"/>
+  <text x="214.40" y="390.25" text-anchor="middle" font-family="sans-serif" font-size="22.85" fill="#1FE3A6">0.7</text>
+  <text x="288.17" y="390.25" text-anchor="middle" font-family="sans-serif" font-size="22.85" fill="#1FE3A6">0.9</text>
+
+  <text x="343.5" y="430.45" text-anchor="middle" font-family="sans-serif" font-size="29.31" font-weight="700" fill="#15CF92">Eat +250 kcal/day &#8594; 0.8 lb/wk</text>
+
+  <line x1="60.92" y1="451.24" x2="626.08" y2="451.24" stroke="#2B2B2B" stroke-width="2.2"/>
+  <text x="343.5" y="483.71" text-anchor="middle" font-family="sans-serif" font-size="19.43" font-weight="700" fill="#7C8288" letter-spacing="3.5">TRAINING</text>
+
+  <circle cx="223.61" cy="516.87" r="11.75" fill="#15CF92"/>
+  <circle cx="263.57" cy="516.87" r="11.75" fill="#2B2B2B"/>
+  <circle cx="303.53" cy="516.87" r="11.75" fill="#15CF92"/>
+  <circle cx="343.49" cy="516.87" r="11.75" fill="#2B2B2B"/>
+  <circle cx="383.45" cy="516.87" r="11.75" fill="#15CF92"/>
+  <circle cx="423.41" cy="516.87" r="11.75" fill="#2B2B2B"/>
+  <circle cx="463.37" cy="516.87" r="11.75" fill="#2B2B2B"/>
+  <circle cx="463.37" cy="516.87" r="18.81" fill="none" stroke="#7C8288" stroke-width="2.4" stroke-opacity="0.45"/>
+
+  <text x="343.5" y="576.06" text-anchor="middle" font-family="sans-serif" font-size="32.91" font-weight="700" fill="#15CF92">16 left &#183; 3.0 / wk</text>
+  <text x="343.5" y="610.67" text-anchor="middle" font-family="sans-serif" font-size="21.12" fill="#7C8288">Next: session A</text>
+
+  <circle cx="631.67" cy="644.53" r="22.41" fill="#20242B" stroke="#3C6FA5" stroke-width="1.57"/>
+  <text x="631.67" y="653.49" text-anchor="middle" font-family="sans-serif" font-size="26.89" fill="#AAB6C2">&#8635;</text>
+
+  <line x1="545" y1="56" x2="600" y2="44" stroke="#15CF92" stroke-width="2"/>
+  <text x="665" y="38" text-anchor="end" font-family="sans-serif" font-size="21" font-weight="700" fill="#15CF92">+40px</text>
+</g>
+
+<!-- ============================= footnotes ============================= -->
+<text x="40" y="855" font-family="sans-serif" font-size="19" fill="#7C8288">Both panels are the real geometry at 687&#215;687px (a 4&#215;4 tile on a 1080p phone) with GYM_TOTAL=22, computed from each version's own arithmetic.</text>
+<text x="40" y="884" font-family="sans-serif" font-size="19" fill="#7C8288">The &#8722;7.9 / +40px figures are the top of the hero's digits measured against the title's baseline. Amber marks are near-misses that overlap outright on shorter tiles.</text>
+<text x="40" y="913" font-family="sans-serif" font-size="19" fill="#5AA9FF">Dashed blue lines on the right are band boundaries, shown for review only &#8212; the renderer does not draw them.</text>
+</svg>

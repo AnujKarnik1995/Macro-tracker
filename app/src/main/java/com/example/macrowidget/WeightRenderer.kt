@@ -82,7 +82,7 @@ object WeightRenderer {
         val footerH = avail * 0.09f
         val footerTop = h - padV - footerH
 
-        val titleSize = clamp(avail * 0.055f, 18f, 40f)
+        val titleSize = PageMetrics.titleSize(avail) // shared across all three pages
         val subSize = clamp(avail * 0.032f, 12f, 24f)
 
         // ===== header =====

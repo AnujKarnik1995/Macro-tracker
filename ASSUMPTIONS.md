@@ -995,3 +995,94 @@ must stay green after any change:
 | budget met early | `left` floors at 0, green not red, headline flips to "done" |
 | on and past the goal date | no divide-by-zero, no negative rate |
 | label `"b"` / `true` / `"Z"` / `false` | normalisation, and that `false` is ignored not counted |
+
+---
+
+## 27. Energy page geometry is a band budget  *(shipped 17 Aug 2026)*
+
+### The bug
+
+With a gym plan configured, the Energy page drew the hero TDEE number **through** the "Burn rate"
+title at every tile size: -7.9px of clearance on a 687x687 tile, and four separate collisions on a
+687x302 one. Every number on the page was correct. They were painted on top of each other, which is
+why nothing in `backend/test/` noticed and why it survived the gym release of 16 Aug.
+
+Shipped in the same change as §26, so it was live for one day.
+
+### Three causes, one shape
+
+The old renderer placed each element at a hand-picked fraction of the content region and treated
+that fraction as a text **baseline**:
+
+1. **The fraction knew nothing about glyph height,** and `regionTop0` was `padV + titleSize` — the
+   title's *baseline*, not its bottom. Fraction 0.0 was therefore already inside the title, and no
+   space under the header was reserved at all.
+2. **`squeeze = 0.68` scaled the region but not the type.** The training block was made room for by
+   multiplying the region height, while `heroSize`/`subSize` kept sizing off the full tile. So
+   configuring a gym plan pulled every element 32% closer to a header that had not moved. This is
+   the trigger: with `GYM_TOTAL = 0` the page was clean at every size.
+3. **Adjacent lines used different anchoring.** The hero's caption sat at an absolute offset
+   (`heroY + subSize * 1.5f`) while the line directly beneath it sat at a fraction of the region.
+   Two neighbours governed by unrelated rules cross over as the region shrinks, and they did.
+
+The common shape: position was computed independently of size, so the two could disagree. Every fix
+that keeps them independent is a fix that can regress.
+
+### The fix
+
+`EnergyLayout` cuts the tile into a stack of disjoint **bands**. Each element draws inside exactly
+one band, centred, at a type size derived from *that band's* height. The invariant is one constant:
+no text may exceed `FIT_CAP = 0.80` of its band. Ink runs about 0.72 of the type size above the
+baseline and 0.21 below, so a centred line occupies at most `0.93 * 0.80 = 0.744` of its band and
+leaves ~13% clear at each edge. **Adjacent bands cannot touch, at any size or aspect ratio, with no
+per-element tuning involved.**
+
+Two details carry more weight than they look:
+
+- **`FIT_CAP` is applied after the legibility clamp**, not before. A `minSize` floor larger than the
+  band would otherwise win and let the glyphs overflow — the same failure as cause 2, one layer
+  down. On an absurd tile this yields small text, which beats overlapping text.
+- **Body weights are normalised, not summed by hand.** Header and footer take fixed shares; the rest
+  is scaled to fill exactly what they leave. The weights need not add up to anything, so retuning or
+  adding a band cannot overflow the tile or leave a dead strip. A hand-summed table of absolute
+  fractions is what produced this bug, and it fails silently.
+
+`squeeze` is gone. The training block is a set of bands appended to the stack, so it shares no
+arithmetic with the energy section above it — previously the ~31px gap between the action line and
+the divider was a coincidence of two unrelated fractions (0.93 x 0.68 = 0.632 against 0.70), not
+reserved space.
+
+### What the geometry test found
+
+Asserting the invariant immediately caught a **second, pre-existing** defect: `WidgetChrome` floors
+the refresh button's radius at 13px, so on a short tile its 26px diameter exceeds a footer sized as
+a plain fraction of the height, and the button reaches up into the last line of content (-1.1px at
+687x320). The floor now lives in `PageMetrics.REFRESH_MIN_RADIUS` and `EnergyLayout` reserves at
+least its full diameter.
+
+Pages 1 and 3 size their own footers (`avail * 0.070` and `avail * 0.090`) and have the same latent
+spill on a sufficiently short tile. **Not fixed here** — they were not reported and changing their
+budgets is a separate change with its own visual review.
+
+### Cross-page title scale
+
+The three pages sized their headers independently — effectively `avail * 0.0505`, `avail * 0.075`
+and `avail * 0.055` — so on one 687px tile the same piece of chrome rendered at 33.3, 49.0 and
+36.0px and page 2 read as a different app. `PageMetrics.titleSize` is now the single source; the
+Weight page's scale is canonical because it is the only one of the three that never overflowed its
+own header band at the small end. Page 3 is unchanged by definition, page 1 moves 33.3 -> 36.0, page
+2 moves 49.0 -> 36.0.
+
+Body type is deliberately **not** unified. Page 2's caption under a hero and page 3's subtitle under
+a title are different roles that happen to look similar, and forcing one number on both would be a
+false equivalence.
+
+### How to check it
+
+`backend/test/LayoutDriver.kt` (section 4 of the test README). 11 tile sizes x 4 states, asserting
+that the bands tile the usable height exactly, that nothing drawn leaves its own band, that no two
+elements overlap, and that the header is fixed chrome independent of the body's contents. It pins
+the 687x687 gym-on case specifically.
+
+`docs/mockup_energy_layout_fix.svg` is the before/after at 687x687, generated from the renderer's
+own arithmetic rather than drawn by eye.

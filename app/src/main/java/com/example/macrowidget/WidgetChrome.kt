@@ -21,7 +21,7 @@ object WidgetChrome {
         val cy = top + h / 2f
 
         // refresh button, bottom-right
-        val r = clamp(h * 0.44f, 13f, 28f)
+        val r = clamp(h * 0.44f, PageMetrics.REFRESH_MIN_RADIUS, PageMetrics.REFRESH_MAX_RADIUS)
         val rcx = right - r - 2f
         c.drawCircle(rcx, cy, r, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = REFRESH_BG })
         c.drawCircle(rcx, cy, r, Paint(Paint.ANTI_ALIAS_FLAG).apply {

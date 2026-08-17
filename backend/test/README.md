@@ -80,6 +80,28 @@ elsewhere. Re-implementations drift: an earlier Python estimate of the post-repa
 came out at 32 because it skipped `CsvParser`'s whole-gram rounding and applied static bands to days
 that had computed centres. The real number is 39.
 
+## 4. Layout test — the Energy page's geometry (JVM)
+
+`EnergyLayout` holds all of page 2's vertical geometry and, like the calculators, imports no
+Android — so the page's readability can be *asserted* instead of eyeballed on a device.
+
+```bash
+kotlinc app/src/main/java/com/example/macrowidget/{PageMetrics,EnergyLayout}.kt \
+        backend/test/LayoutDriver.kt -d /tmp/layout
+kotlin -cp /tmp/layout LayoutDriverKt
+```
+
+Across 11 tile sizes (the 320px floor, realistic tiles, and deliberately absurd 3.75:1 aspect
+ratios) times the four states (training block on/off, TDEE measured/measuring) it checks that the
+bands tile the usable height exactly, that nothing drawn leaves its own band, that no two elements
+overlap, and that the header is fixed chrome whose size never depends on what the body contains.
+
+It also pins the specific regression it was written for: with a gym plan configured, the hero TDEE
+number used to be drawn **through** the page title — 7.9px of overlap on a 687x687 tile — because
+the content region was squeezed by 0.68 for the training block while the type kept sizing off the
+full tile. Every number on the page was correct; they were simply painted on top of one another,
+which is why no other test in this directory noticed. See ASSUMPTIONS.md §27.
+
 ## Suggested workflow for a refactor
 
 1. Copy the current `Code.gs` aside as the baseline.

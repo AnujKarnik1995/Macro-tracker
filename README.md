@@ -271,6 +271,11 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `WeightCalculator.kt` — weekly-average weight, week-over-week rate, in-zone, current-week band.
 - `ColorRamp.kt` — graded palettes and the zone-color function.
 - `ChartRenderer.kt` / `EnergyRenderer.kt` / `WeightRenderer.kt` — the three page bitmaps.
+- `EnergyLayout.kt` — page 2's vertical geometry: a stack of disjoint bands that each element draws
+  inside, sized from its own band so text cannot overlap. No Android imports, so it is asserted
+  offline rather than eyeballed on a device (ASSUMPTIONS.md §27).
+- `PageMetrics.kt` — metrics shared by all three pages: the canonical page-title scale and the
+  refresh button's radius bounds.
 - `WidgetChrome.kt` — shared footer (refresh button; page dots removed in favor of tap halves).
 - `ChartWorker.kt` — fetches both CSVs off-thread, computes streak/countdown/TDEE, 3-way page dispatch, pushes the bitmap. Holds `GOAL_DATE` / `GOAL_LABEL`.
 - `SheetFetcher.kt` / `SheetCache.kt` / `BitmapCache.kt` — fetch with retry + conditional GET, per-URL CSV cache, and last-frame cache (no-blink).
