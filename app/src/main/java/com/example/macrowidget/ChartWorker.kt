@@ -178,7 +178,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
         if (!s.hasData) return "none"
         return buildString {
             append(s.weeks.joinToString(",") { "${it.end}:${it.avg}:${it.complete}:${it.inZone}" })
-            append('|').append(s.currentDailies.joinToString(","))
+            append('|').append(s.currentDailies.joinToString(",") { "${it.date}:${it.lb}" })
             append('|').append(s.targetLow).append(':').append(s.targetHigh)
             append('|').append(s.latest).append(':').append(s.totalDelta).append(':').append(s.thisWeekRate)
         }

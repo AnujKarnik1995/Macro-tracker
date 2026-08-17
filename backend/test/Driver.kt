@@ -25,7 +25,7 @@ fun main(args: Array<String>) {
 
     val ws = WeightCalculator.series(entries, wTarget, today)
     println("  \"weeks\": ${ws.weeks.size}, \"latest\": ${ws.latest}, \"thisWeekRate\": ${ws.thisWeekRate},")
-    println("  \"weeklyAvgs\": [${ws.weeks.joinToString(","){ "%.2f".format(it.avg) }}],")
+    println("  \"weeklyAvgs\": [${ws.weeks.joinToString(","){ it.avg?.let{a->"%.2f".format(a)} ?: "null" }}],")
     println("  \"weeklyRates\": [${ws.weeks.joinToString(","){ it.rate?.let{r->"%.2f".format(r)} ?: "null" }}],")
     println("  \"weekComplete\": [${ws.weeks.joinToString(","){ it.complete.toString() }}],")
 

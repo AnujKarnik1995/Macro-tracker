@@ -644,7 +644,7 @@ Two cosmetic inconsistencies left, neither changing any green/not-green verdict:
 
 ---
 
-## 21. BUG: week-over-week rate ignores missing weeks *(widget, found 9 Aug 2026)*
+## 21. BUG: week-over-week rate ignores missing weeks *(widget, found 9 Aug 2026 — fixed 16 Aug 2026, §25)*
 
 `WeightCalculator.kt:57`:
 
@@ -663,6 +663,14 @@ cutting dangerously hard.
 Fix: divide by the actual week gap, `ChronoUnit.WEEKS.between(prevStart, start)`, and suppress the
 rate (or mark it interpolated) when the gap exceeds one week. Needs an Android rebuild, so it is
 parked — cosmetic for this cut, but it will mislead any self-hoster with gaps in their weigh-ins.
+
+**Fixed 16 Aug 2026**, but not by dividing. The week list is now built from the **calendar**, so a
+missed week exists as a real entry with `avg = null` and the "adjacent entries" and "adjacent weeks"
+readings converge — `rate` is simply the previous entry's diff, and it is null whenever either side
+has no data. Dividing by the gap was rejected: a 4-week loss ÷ 4 is not a weekly rate, it is an
+average that hides which of those weeks actually stalled, and scoring it against a 0.7–0.9 band
+would still be scoring a number nobody measured. A null reads as neutral on the page, which is the
+honest answer. See §25 for the rest of that change.
 
 ---
 
@@ -833,3 +841,72 @@ re-running `createTargetsTrigger` returns the schedule to ~03:00.
 Config-sheet row. When the Config sheet lands it should move there, along with `burn_delta_gain` and
 `burn_delta_cap`, which are the knobs that would let the flex come back *scaled* instead of raw.
 
+
+---
+
+## 25. Weight page sizes off a window, not off history  *(shipped 16 Aug 2026)*
+
+The page plotted every week ever logged. Nothing in the layout was bounded, so it decayed as the
+cut ran. Measured at the widget's real 420×560 geometry (plot 299.4 × 392.0 px):
+
+| weeks plotted | slot width | y span | target band |
+| --- | --- | --- | --- |
+| 7 (Aug 2026, live) | 42.8 px | 6 lb | 13.0 px |
+| 26 | 11.5 px | 26.2 lb | **3.0 px** |
+| 52 | 5.8 px | ~40 lb | ~2 px |
+
+Three independent causes, worth separating because they'd have been fixed differently:
+
+1. **X density.** `x(i)` divided plot width by `weeks.size`. The weekly dot is 7.6 px across, so
+   the dots touch around week 26 and merge after. The band width and the daily jitter were both
+   expressed as fractions of the slot, so they collapsed with it.
+2. **Y range.** Taken over all history plus 18% padding each side. The target band is only 0.2 lb
+   tall, so its pixel height is `0.2 / span × 392` — it shrinks as the cut succeeds. This was the
+   worst of the three: the band is the one thing on the page you act on.
+3. **Label collision.** A bold value label is ~42.6 px wide at this text size, against a 42.8 px
+   slot at 7 weeks. They had been touching with zero gutter from **week 8** — before any of the
+   above became visible.
+
+### The dials, and why they're these numbers
+
+| dial | value | where it comes from |
+| --- | --- | --- |
+| window | `plotWidth / (subSize × 1.7)`, clamped 6–14 (**10** at 420 px) | 1.7× the subline text is the narrowest slot that still fits the seven day-of-week positions of the current week's weigh-ins |
+| max y span | `bandLb × plotH / 8` (**9.8 lb** at 420×560) | inverted from the requirement, not tuned: the span at which a 0.2 lb band still renders 8 px |
+| min y span | 4 lb | below this a stall magnifies scale noise into a cliff |
+| padding | 12% of spread | was 18%; the extra headroom was costing band pixels for nothing |
+
+**The two caps interact, and the window loses.** If the chosen window's natural range exceeds the
+max span, the *window* shortens a week at a time (down to 6) until it fits. Only if 6 weeks still
+won't fit — roughly a sustained 2 lb/wk, well outside the 0.7–0.9 target — does the range clamp and
+the oldest weeks clip off the top, anchored so the current week and the band stay visible. Shrinking
+the window loses old context you can still read in the subline; clipping loses the thing you act on.
+
+**Canvas does not clip by default.** With the span cap in play the trend can legitimately leave the
+plot box, and without an explicit `clipRect` it paints over the title. This was caught only by
+rendering the fast-loss case — it is invisible at any normal loss rate.
+
+### What it costs
+
+- **Long-term arc is gone from the plot.** You see ~10 weeks; total loss lives in the subline. This
+  was accepted deliberately — the alternative (a second panel or a fourth page) was rejected.
+- **Value labels are now sparse**, packed newest-first and dropped when they'd touch. At 7 weeks
+  this means every *other* week is labelled where all seven used to be. That is a visible change at
+  current data volume, and it is the correct one: they were overlapping.
+- **The starting weight can fall in a dropped label slot.** It is still in the subline as total.
+
+### How to check it
+
+There is no committed off-device render path, so this was verified by compiling the real
+`WeightRenderer` against a stub `android.graphics` that records draw calls as SVG. Scenarios that
+must be re-checked after any change to this page — **band pixel height is the acceptance metric**:
+
+| scenario | what it proves |
+| --- | --- |
+| 7 / 26 / 52 weeks | layout is identical at 26 and 52; nothing scales with history |
+| missed week: last / mid / current / scattered | slot held, dashed bridge, neutral week-after, band suppressed when the baseline week is missing |
+| 3 weeks | cold start below the window minimum |
+| ~2 lb/wk | window self-shortens, then clips without painting over the header |
+| stall (±0.25 lb) | min-span floor holds |
+
+Checking it only against current data volume is what let all three causes ship in the first place.
