@@ -28,6 +28,10 @@ android {
         buildConfigField("String", "GOAL_LABEL",      "\"${personalConfig.getProperty("GOAL_LABEL", "Dec 31")}\"")
         buildConfigField("String", "CHALLENGE_START", "\"${personalConfig.getProperty("CHALLENGE_START", "2026-01-01")}\"")
         buildConfigField("String", "PHASE_LABEL",     "\"${personalConfig.getProperty("PHASE_LABEL", "Cutting Phase")}\"")
+        // Strength-session budget shown on the Energy page. GYM_TOTAL = 0 hides the block entirely,
+        // which is the neutral default so a fresh clone renders the page exactly as before.
+        buildConfigField("String", "GYM_START",       "\"${personalConfig.getProperty("GYM_START", "2026-01-01")}\"")
+        buildConfigField("int",    "GYM_TOTAL",       personalConfig.getProperty("GYM_TOTAL", "0"))
     }
     buildFeatures { buildConfig = true }
     buildTypes { release { isMinifyEnabled = false } }

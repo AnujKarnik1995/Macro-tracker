@@ -41,12 +41,6 @@ The project grew in layers, each committed as it stabilized:
    → Health Connect automation; it never worked reliably and was removed — the burn number is
    hand-entered.) **This flex is currently switched off** (`BURN_DELTA_ENABLED = false`); the
    training is already inside the measured TDEE, so the delta is held at 0. See ASSUMPTIONS.md §24.
-7. **A weight page that survives a long cut.** The trend originally plotted every week ever
-   logged, so it degraded as it filled up — by six months the weekly points were closer together
-   than their own diameter and the target band was thinner than a hairline. The page now sizes
-   itself off a recent window instead of total history, and weeks come from the calendar rather
-   than from the rows that exist, so a week you didn't weigh in stays visible as a gap instead of
-   silently closing up and corrupting the next week's loss rate.
 
 ## Intent
 
@@ -60,12 +54,12 @@ you in the goal loss-rate band, while never punishing past effort when the plan 
   <tr>
     <td align="center"><img src="docs/render_today.svg" width="240" alt="Today view — graded macro bullet rows and weekly rings"></td>
     <td align="center"><img src="docs/render_energy.svg" width="240" alt="Burn rate view — measured TDEE, loss rate vs band, intake suggestion"></td>
-    <td align="center"><img src="docs/render_weight.svg" width="240" alt="Weight view — recent weekly-average trend with target band and this week's weigh-ins by day"></td>
+    <td align="center"><img src="docs/render_weight.svg" width="240" alt="Weight view — weekly-average trend with target band"></td>
   </tr>
   <tr>
     <td align="center"><b>Page 1 · Today</b><br>streak + countdown, graded macro rows, weekly rings</td>
     <td align="center"><b>Page 2 · Burn rate</b><br>measured TDEE, loss rate vs band, intake nudge</td>
-    <td align="center"><b>Page 3 · Weight</b><br>recent weekly-average trend, target band, this week's weigh-ins by day</td>
+    <td align="center"><b>Page 3 · Weight</b><br>weekly-average trend, target band, weigh-ins</td>
   </tr>
 </table>
 
@@ -87,41 +81,20 @@ average intake over the window. Below that, the **measured loss rate** colored a
 a marker, and an action line telling you how to adjust intake to settle into the band
 (e.g. `Eat +250 kcal/day → 0.8 lb/wk`). Until there's enough data it shows a "measuring" state.
 
+Under a divider sits the **training block**: seven day-dots for the last week (oldest left, today
+ringed on the right), the sessions still owed, and the per-week rate they now demand
+(`16 left · 3.0 / wk`), plus which session is up next. It's the same idea as the line above it —
+measured rate vs required rate — applied to the gym instead of the kitchen. The block only appears
+when `GYM_TOTAL` is set, and it renders even while TDEE is still measuring, since counting sessions
+needs no weigh-ins.
+
 ### Page 3 · Weight
-A weekly-average weight trend (week = Sun→Sat). The current week's daily weigh-ins (`Summary`
-col F) sit on their **own day-of-week columns**, Sun→Sat within the current week's slot, and
-consolidate into one weekly point — so you can see whether the week trended down or bounced,
-not just where it ended up. The current week finalizes — becoming a solid, labeled point — as
-soon as **its Saturday weigh-in is logged**, rather than waiting for the calendar to roll past
-Saturday. Week-over-week loss is judged against the rate band (the `Targets` "Weight Loss" row)
-and colors that week's dot: **green** in-band, **amber** losing faster than the band, **red**
-losing slower, neutral when there's no rate to judge. A green band anchored at last week's
-average − 0.7 to − 0.9 marks where the current week should land.
-
-**It plots a recent window, not all of history.** Everything on the page is sized off the last
-6–14 weeks (10 on a typical tile), picked so a week's slot stays wide enough for its seven
-day-of-week positions; whole-history figures live in the subline instead. The y axis is capped at
-whatever span still renders the 0.2 lb target band 8 px tall, and if the window won't fit under
-that cap the *window* shortens rather than the trend clipping. Value labels are packed
-newest-first and dropped as soon as one would touch its neighbour, and the x axis shows
-week-ending dates instead of an ever-growing week number. Without this the page decayed as it
-filled: at 26 weeks the slots were 11 px wide against a 7.6 px dot, the band was 3 px tall, and
-the value labels had been overlapping since week 8.
-
-**A missed week stays visible.** Weeks are enumerated from the calendar, not from the rows that
-happen to exist, so a week with no weigh-ins keeps its slot: nothing is drawn in it, it gets no
-date label, and the trend is carried across it by a **dashed** line. A solid segment therefore
-always means one real week to the next. The week *after* a gap is left neutral rather than
-colored, because its loss would be a two-week delta wearing a weekly label — and for the same
-reason the current week gets no target band when the week before it was missed.
-
-<p align="center">
-  <img src="docs/render_weight_gap.svg" width="240" alt="Weight view with a missed week — the empty slot is held open and bridged with a dashed line">
-</p>
-
-> The same page with a missed week mid-chart. Its slot is held open, the trend is dashed across
-> it, and the following week is neutral. This render also shows every dot state at once: neutral
-> (first week, and the week after the gap), green in-band, red under-cut, amber over-cut.
+A weekly-average weight trend. Daily weigh-ins (`Summary` col F) show as a faint cluster on the
+current week and consolidate into one weekly point (week = Sun→Sat). The current week finalizes —
+becoming a solid, labeled point — as soon as **its Saturday weigh-in is logged**, rather than
+waiting for the calendar to roll past Saturday. Week-over-week loss is judged against the rate band
+(the `Targets` "Weight Loss" row): in-band weeks get a ✓, out-of-band show amber. A green band
+anchored at last week's average − 0.7 to − 0.9 marks where the current week should land.
 
 Color throughout is **graded**, not snapped: inside the band = green, easing to amber then red
 as you drift. Being *under* on fat is treated as danger; under on cals/carbs/protein is amber.
@@ -152,6 +125,31 @@ A day counts as successful when **Protein, Carbs and Fat all land in band** (Cal
 intentionally not gated). Each day is scored against the target in effect *on that date* via
 `TargetHistory`/`EffectiveFrom`, so editing or dating a new target never re-scores earlier days.
 The tally is recomputed from the Sheet each refresh, so it self-corrects and never drifts.
+
+### Strength sessions (checkbox, not calories)
+
+`{"gym":"A"}` or `{"gym":"B"}` marks a completed session. It is deliberately **not** wired into the
+daily target: the training is already inside the measured TDEE, so paying calories for it would
+double-count — and it would re-create the "I earned this" loop the constant-deficit design exists to
+remove. Sessions are counted for pacing only.
+
+The widget shows `left / weeksRemaining`, not a raw count, because a raw count only falls when you
+train — a skipped week looks identical to a trained one right up until the deadline. The required
+rate rises on its own every idle day (3.0 → 3.4 → 4.1 → 5.0 across three empty weeks on a
+22-session plan), which is also why self-reporting survives here: padding the count can't improve
+the rate, since the divisor shrinks with the calendar regardless. It just moves the shortfall to the
+goal date.
+
+Counted over a **rolling 7 days**, so a week that starts badly is never written off. Which days you
+use is up to you. Two sessions in one day is still one; several entries for a date collapse, with
+the last label winning so a correction just works. There is no rest-day log — absence is the miss.
+
+`A`/`B` are the two alternating full-body sessions, so "next" is a **pointer, not a weekday**: there
+is no leg day, hence no leg day to miss. A gap doesn't shuffle the rotation, the next session waits.
+
+Set `GYM_START` and `GYM_TOTAL` in `config.properties`; `GYM_TOTAL=0` hides the block. Grading is
+relative to the plan's own pace (amber at 1.07×, red at 1.34×), so the colors stay meaningful if you
+change the plan. See ASSUMPTIONS.md §26.
 
 ### Training burn (currently OFF)
 The training-burn flex is switched off end to end (`BURN_DELTA_ENABLED = false`): burn payloads are
@@ -191,9 +189,11 @@ widget reads two published CSVs:
 
 **Summary** (built by Apps Script; columns by position):
 ```
-date, cal, p, c, f, weight, unused, burn, t_cal, t_pro, t_carb, t_fat
+date, cal, p, c, f, weight, unused, burn, t_cal, t_pro, t_carb, t_fat, gym
 ```
-(`unused`/col G is always blank — a fixed slot so the target columns `t_cal`–`t_fat` don't shift.)
+(`unused`/col G is always blank — a fixed slot so the target columns `t_cal`–`t_fat` don't shift.
+`gym` is **appended** at col M for the same reason: parsing is positional, so inserting it earlier
+would shift `t_cal`–`t_fat` and silently re-score history.)
 
 **Targets** (rows matched by keyword, so order is flexible; `EffectiveFrom` is optional):
 ```
@@ -233,11 +233,12 @@ or an array of objects:
 ```json
 {"cal": 600, "p": 40, "c": 55, "f": 18, "meal": "Lunch", "details": "chicken & rice"}   // a meal
 {"weight": 152.4}                                                                        // a weigh-in
+{"gym": "A"}                                                                             // a strength session
 [{"cal": 220, "p": 8, "c": 30, "f": 9, "meal": "Snack"}, {"weight": 152.4}]              // several at once
 ```
 
-`cal`/`p`/`c`/`f` make a meal; `weight` makes a weigh-in; `meal`/`details` are optional labels; add
-`"date":"DD/MM/YYYY"` to back-date. `burn` is accepted only if the training-burn flex is re-enabled
+`cal`/`p`/`c`/`f` make a meal; `weight` makes a weigh-in; `gym` marks a completed strength session;
+`meal`/`details` are optional labels; add `"date":"DD/MM/YYYY"` to back-date. `burn` is accepted only if the training-burn flex is re-enabled
 (off by default). Unknown or empty items are ignored. (The payload is plain JSON, so you can type it,
 keep snippets handy, or have an assistant turn "180 g tofu, 1 cup rice" into the object for you.)
 
@@ -250,8 +251,8 @@ keep snippets handy, or have an assistant turn "180 g tofu, 1 cup rice" into the
 > "collect email" — the parser reads the payload from the second response column.
 
 ### 3. Build + add the widget
-0. (Optional) Set your goal date, label, phase, and green-day start in **`config.properties`** at the
-   repo root — these bake into the app via `BuildConfig`. If the file is missing, neutral defaults are used.
+0. (Optional) Set your goal date, label, phase, green-day start, and the strength-session budget
+   (`GYM_START` / `GYM_TOTAL`) in **`config.properties`** at the repo root — these bake into the app via `BuildConfig`. If the file is missing, neutral defaults are used.
 1. Open the folder in **Android Studio** (Hedgehog or newer); let Gradle sync; run on device.
 2. Long-press home → **Widgets** → **Macro Widget** → drag on a tile.
 3. Paste the **Summary URL** and **Targets URL** → **Save** (remembered for next time).
@@ -266,9 +267,10 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `MacroModel.kt` — `LogEntry`, `MacroType`, `Target`, `DatedTarget`, `TargetHistory` (frozen greens), `WeightTarget`.
 - `MacroCalculator.kt` — today's row, weekly average (incl. the week's mean per-day band used to color the rings), successful-day tally, `effectiveTargets` (per-day center ± width, static fallback).
 - `TdeeCalculator.kt` — back-calculated TDEE + loss rate over the trailing window; readiness gate.
-- `WeightCalculator.kt` — weekly-average weight, week-over-week rate, in-zone, current-week band. Weeks are enumerated from the **calendar**, so a week with no weigh-ins survives as a gap (`avg = null`) instead of vanishing; `rate` is only set when the immediately preceding calendar week has data.
+- `GymCalculator.kt` — session count vs the budget, required per-week rate, rolling-7 dots, A/B rotation pointer.
+- `WeightCalculator.kt` — weekly-average weight, week-over-week rate, in-zone, current-week band.
 - `ColorRamp.kt` — graded palettes and the zone-color function.
-- `ChartRenderer.kt` / `EnergyRenderer.kt` / `WeightRenderer.kt` — the three page bitmaps. `WeightRenderer` sizes its window and y span off recent weeks only, so nothing in its layout scales with total history.
+- `ChartRenderer.kt` / `EnergyRenderer.kt` / `WeightRenderer.kt` — the three page bitmaps.
 - `WidgetChrome.kt` — shared footer (refresh button; page dots removed in favor of tap halves).
 - `ChartWorker.kt` — fetches both CSVs off-thread, computes streak/countdown/TDEE, 3-way page dispatch, pushes the bitmap. Holds `GOAL_DATE` / `GOAL_LABEL`.
 - `SheetFetcher.kt` / `SheetCache.kt` / `BitmapCache.kt` — fetch with retry + conditional GET, per-URL CSV cache, and last-frame cache (no-blink).

@@ -6,11 +6,16 @@ const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro band
                                           // dated via an EffectiveFrom column (col E). Change name here if yours differs.
 
 // Tracker columns:  A date(0) B meal(1) C details(2) D cal(3) E p(4) F c(5) G f(6) H weight(7) I unused(8) J burn(9)
+//                   K gym(10)  <- session label "A"/"B" for a completed strength session
 // Summary columns:  A date(0) B cal(1) C p(2) D c(3) E f(4) F weight(5) G unused(6) H burn(7)
 //                   I t_cal(8) J t_pro(9) K t_carb(10) L t_fat(11)   <- per-day target CENTERS (updateDailyTargets)
+//                   M gym(12)  <- "A"/"B" when a session was logged that day, blank otherwise
 // Col G/I ("unused") is a dead slot, kept BLANK on purpose — Summary is parsed by POSITION, so
 // collapsing it would shift cols I-L and re-score history. ASSUMPTIONS.md §11.
-const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "unused", "burn", "t_cal", "t_pro", "t_carb", "t_fat"];
+//
+// `gym` is APPENDED at col M, never inserted. Same reason: the widget parses Summary by position,
+// so putting it anywhere before L would shift the target columns and silently re-score history.
+const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "unused", "burn", "t_cal", "t_pro", "t_carb", "t_fat", "gym"];
 
 // ----- TDEE / dynamic-target compute -----
 // 28 not 20: in a 20-day fit the 4 edge weigh-ins carry ~58% of the slope, so one water-low reading
@@ -36,6 +41,20 @@ const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window 
 // createTargetsTrigger once so the daily schedule moves to ~14:30. ASSUMPTIONS.md §24.
 const BURN_DELTA_ENABLED = false;
 
+// ----- Strength-session logging -----
+// A gym day is a CHECKBOX, not a calorie figure: {"gym":"A"} or {"gym":"B"} through the same Form.
+// Deliberately NOT wired into the daily target — that is the burn-flex mistake (§24) all over again.
+// The training is already inside the measured TDEE, and paying yourself calories for a session
+// re-creates the "I earned this" loop the constant-deficit design exists to avoid. Sessions are
+// counted for pacing only; they never move a macro.
+//
+// Two labels because the program alternates A/B full-body sessions. The label is what lets the
+// widget say which one is up next, so the rotation is driven by a pointer rather than by weekday —
+// you can never "miss leg day", you just do the next one.
+const GYM_LABELS = ["A", "B"];
+// Several submissions for one date collapse to ONE session (last label wins). No banking ahead:
+// two sessions in a day is still a 1, matching how the widget's rolling-7 count reads.
+
 // Basal/BMR is never processed at all — not gated, removed. It was only ever written to a column
 // nothing read, and an intake-anchored TDEE cannot need it (§4). Payload items carrying only
 // `basal` are dropped by payloadItemToRow.
@@ -54,7 +73,7 @@ function processMacroPayload(e) {
 
     const today = todayStr();                  // spreadsheet TZ; used when an item carries no "date"
     const newRows = [];                        // batched: one write instead of one per item
-    const want = { macros: {}, weight: {}, burn: {} };
+    const want = { macros: {}, weight: {}, burn: {}, gym: {} };
 
     data.forEach(item => {
       // OPTIONAL back-date: item.date "DD/MM/YYYY" (post-midnight or forgotten entries)
@@ -63,7 +82,10 @@ function processMacroPayload(e) {
       newRows.push(mapped.row);
       if (mapped.kind === "weight")    want.weight[mapped.date] = true;
       else if (mapped.kind === "burn") want.burn[mapped.date]   = true;
+      else if (mapped.kind === "gym")  want.gym[mapped.date]    = true;
       else                             want.macros[mapped.date] = true;
+      // A meal row can also carry a session (see payloadItemToRow) — refresh both groups.
+      if (mapped.gym) want.gym[mapped.date] = true;
     });
 
     if (newRows.length) {
@@ -92,9 +114,11 @@ function num(v) {
   return isNaN(n) ? null : n;
 }
 
-// Tracker is written 10 columns wide, uniformly:
-//   A date  B meal  C details  D cal  E p  F c  G f  H weight  I unused  J burn
-const TRACKER_WIDTH = 10;
+// Tracker is written 11 columns wide, uniformly:
+//   A date  B meal  C details  D cal  E p  F c  G f  H weight  I unused  J burn  K gym
+// Widened from 10 for the gym column. Existing 10-wide rows read back fine (index 10 comes out
+// undefined -> num()/String() handle it), so no Tracker rebuild is required to adopt this.
+const TRACKER_WIDTH = 11;
 
 /**
  * Turns one Form payload item into a Tracker row: {kind, date, row}, or **null** when the item
@@ -115,12 +139,41 @@ function payloadItemToRow(item, fallbackDate) {
   if (isWeightEntry(item)) return { kind: "weight", date: d, row: pad([d, "Weigh-in", "", "", "", "", "", num(item.weight)]) };
   if (isBurnEntry(item))   return { kind: "burn",   date: d, row: pad([d, "Burn", "", "", "", "", "", "", "", num(item.burn)]) };
 
+  const g = normGym(item);
   const hasMacros = num(item && item.cal) !== null || num(item && item.p) !== null ||
                     num(item && item.c)   !== null || num(item && item.f) !== null;
-  if (!hasMacros) return null;
 
-  return { kind: "meal", date: d, row: pad([d, item.meal || "", item.details || "",
-           numOrBlank(item.cal), numOrBlank(item.p), numOrBlank(item.c), numOrBlank(item.f)]) };
+  // A lone {"gym":"A"} is its own row.
+  if (!hasMacros) {
+    return g ? { kind: "gym", date: d, gym: g,
+                 row: pad([d, "Gym " + g, "", "", "", "", "", "", "", "", g]) } : null;
+  }
+
+  // Macros AND a gym flag in the SAME object ({"cal":640,...,"gym":"B"}) is a meal row that also
+  // carries the session in col K — a Tracker row can hold both. Returning early on the gym branch
+  // would have silently swallowed the meal, and checking macros first would have silently swallowed
+  // the session; either way one of them vanishes with no error. `gym` is reported separately from
+  // `kind` so the caller refreshes BOTH column groups.
+  return { kind: "meal", date: d, gym: g, row: pad([d, item.meal || "", item.details || "",
+           numOrBlank(item.cal), numOrBlank(item.p), numOrBlank(item.c), numOrBlank(item.f),
+           "", "", "", g || ""]) };
+}
+
+/**
+ * The session label for a payload item — "A" or "B" — or null when it carries no gym flag.
+ *
+ * Accepts what a human actually types: {"gym":"A"}, {"gym":"b"}, {"gym":true} and {"gym":1} all
+ * mean "I trained". The bare-truthy forms cannot name a session, so they default to "A"; the
+ * widget's rotation pointer then just advances from there. {"gym":false} / {"gym":0} are NOT a
+ * miss-log — there is no such thing — they are simply ignored, so an absent day stays the miss.
+ */
+function normGym(item) {
+  if (!item || item.gym === undefined || item.gym === null || item.gym === "") return null;
+  const v = item.gym;
+  if (v === true || v === 1 || v === "1") return GYM_LABELS[0];
+  if (v === false || v === 0 || v === "0") return null;
+  const s = String(v).trim().toUpperCase();
+  return GYM_LABELS.indexOf(s) >= 0 ? s : GYM_LABELS[0];
 }
 
 /** A payload item is a weigh-in if it carries a numeric `weight`. */
@@ -151,7 +204,7 @@ function parseInputDate(s) {
  * re-read the whole sheet and re-implemented the same arithmetic — which is how the last-value-wins
  * burn bug survived in rebuildAllSummary after being fixed in updateBurnSummary.
  *
- * Returns { "yyyy-MM-dd": {cal, p, c, f, wSum, wN, burn, burnSeen} }.
+ * Returns { "yyyy-MM-dd": {cal, p, c, f, wSum, wN, burn, burnSeen, gym} }.
  */
 function aggregateTracker(rows) {
   const agg = {};
@@ -159,7 +212,7 @@ function aggregateTracker(rows) {
     const d = normDate(rows[i][0]);
     if (!d) continue;
     let a = agg[d];
-    if (!a) a = agg[d] = { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, burn: 0, burnSeen: false };
+    if (!a) a = agg[d] = emptyTrackerDay();
     a.cal += num(rows[i][3]) || 0;
     a.p   += num(rows[i][4]) || 0;
     a.c   += num(rows[i][5]) || 0;
@@ -170,13 +223,21 @@ function aggregateTracker(rows) {
       const b = num(rows[i][9]);                     // J burn — every session for the date adds up
       if (b !== null) { a.burn += b; a.burnSeen = true; }
     }
+    // K gym — unlike burn, sessions do NOT accumulate. Two rows for one date is still one gym day;
+    // the last label written wins, so a correction ({"gym":"B"} after a mis-typed "A") just works.
+    const gv = normGym({ gym: rows[i][10] });
+    if (gv) a.gym = gv;
   }
   return agg;
 }
 
+function emptyTrackerDay() {
+  return { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, burn: 0, burnSeen: false, gym: "" };
+}
+
 /** The aggregate for one date, or a zeroed one if Tracker has no rows for it. */
 function trackerDay(agg, dateStr) {
-  return agg[dateStr] || { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, burn: 0, burnSeen: false };
+  return agg[dateStr] || emptyTrackerDay();
 }
 
 /** A date's weight, averaged and rounded to 0.1 lb, or "" when there were no weigh-ins. */
@@ -208,6 +269,12 @@ function refreshSummary(ss, want) {
     const a = trackerDay(agg, d);
     upsertSummary(summary, sum, d, 8, [a.burnSeen ? a.burn : ""], a.burnSeen);
   });
+  // Col M. appendIfMissing is TRUE: a session logged on a day with no food and no weigh-in still
+  // has to create its Summary row, or the widget's rolling-7 count would never see it.
+  Object.keys(want.gym || {}).forEach(d => {
+    const a = trackerDay(agg, d);
+    upsertSummary(summary, sum, d, 13, [a.gym || ""], !!a.gym);
+  });
   return { summary: summary, sum: sum };
 }
 
@@ -227,6 +294,12 @@ function updateWeightSummary(dateStr) {
 function updateBurnSummary(dateStr) {
   const m = {}; m[dateStr] = true;
   refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { burn: m });
+}
+
+/** Recomputes the gym cell (M) for one date. Multiple entries collapse to ONE session. */
+function updateGymSummary(dateStr) {
+  const m = {}; m[dateStr] = true;
+  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { gym: m });
 }
 
 /**
@@ -291,12 +364,13 @@ function sheetWithHeader(ss, name, header) {
   return sh;
 }
 
-/** Run manually to recompute TODAY's macro + weight + burn cells immediately (no form submit). */
+/** Run manually to recompute TODAY's macro + weight + burn + gym cells (no form submit). */
 function rebuildToday() {
   const today = todayStr();
   updateDailySummary(today);
   updateWeightSummary(today);
   updateBurnSummary(today);
+  updateGymSummary(today);
 }
 
 /** REPAIR TOOL: wipes Summary and rebuilds every day's macros, weight AND burn from Tracker.
@@ -327,7 +401,8 @@ function rebuildAllSummary() {
       return [d, a.cal, a.p, a.c, a.f, dayWeight(a),
               "",                              // col G intentionally blank (see SUMMARY_HEADER note)
               a.burnSeen ? a.burn : "",
-              t[0], t[1], t[2], t[3]];
+              t[0], t[1], t[2], t[3],
+              a.gym || ""];                    // col M — rebuilt from Tracker, not preserved
     });
     summary.getRange(2, 1, out.length, SUMMARY_HEADER.length).setValues(out);
   }
@@ -343,8 +418,8 @@ function rebuildTrackerFromResponses() {
 
   const resRows = responses.getDataRange().getValues();   // [timestamp, payload, ...]
   const out = [];
-  const tally = { meal: 0, weight: 0, burn: 0 };
-  let unparseable = 0, empty = 0;
+  const tally = { meal: 0, weight: 0, burn: 0, gym: 0 };
+  let unparseable = 0, empty = 0, mealGym = 0;
 
   for (let i = 1; i < resRows.length; i++) {              // skip header
     const payload = resRows[i][1];
@@ -364,6 +439,7 @@ function rebuildTrackerFromResponses() {
       if (!mapped) { empty++; return; }       // e.g. the legacy {basal,date} items — no information
       out.push(mapped.row);
       tally[mapped.kind]++;
+      if (mapped.kind === "meal" && mapped.gym) mealGym++;   // session riding along on a meal row
     });
   }
 
@@ -375,7 +451,8 @@ function rebuildTrackerFromResponses() {
   rebuildAllSummary();
 
   Logger.log("Rebuilt from " + (resRows.length - 1) + " responses: " + tally.meal + " meals, " +
-             tally.weight + " weigh-ins, " + tally.burn + " burn, " + empty +
+             tally.weight + " weigh-ins, " + tally.burn + " burn, " +
+             (tally.gym + mealGym) + " gym sessions (" + mealGym + " on meal rows), " + empty +
              " items with nothing usable, " + unparseable + " unparseable payloads.");
 }
 
@@ -663,6 +740,7 @@ function createLoggingForm() {
     'Submit ONE JSON payload per entry. Examples:\n' +
     'meal:     {"cal":600,"p":40,"c":55,"f":18,"meal":"Lunch","details":"chicken & rice"}\n' +
     'weigh-in: {"weight":152.4}\n' +
+    'gym:      {"gym":"A"}   (or "B" — the session you just did)\n' +
     'Add "date":"DD/MM/YYYY" to back-date. An array of objects logs several at once.');
   form.addParagraphTextItem().setTitle("payload").setRequired(true);
 

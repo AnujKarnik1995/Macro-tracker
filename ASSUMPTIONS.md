@@ -910,3 +910,88 @@ must be re-checked after any change to this page — **band pixel height is the 
 | stall (±0.25 lb) | min-span floor holds |
 
 Checking it only against current data volume is what let all three causes ship in the first place.
+
+---
+
+## 26. Strength sessions are a checkbox, not calories  *(shipped 16 Aug 2026)*
+
+### What changed
+
+`{"gym":"A"}` (or `"B"`) through the existing Form. Tracker gains col K, Summary gains col M, and
+the Energy page gains a training block: seven day-dots, sessions remaining, and the per-week rate
+those remaining sessions demand.
+
+### Why it is not wired into the daily target
+
+This is §24 all over again and the answer is the same. The training is already inside the measured
+TDEE, so paying calories for a logged session double-counts it. Worse, it re-creates the "I earned
+this" loop the constant-deficit design exists to remove — the whole point of the anchor is that the
+day's food does not negotiate with the day's effort. Sessions are counted for **pacing only**. No
+gym value ever reaches `updateDailyTargets`.
+
+The corollary: there is no rest-day log and no `{"gym":0}`. Absence **is** the miss. A miss-log
+would be a second thing to remember on exactly the days the user is least likely to remember it,
+and it buys nothing the empty dot does not already show.
+
+### Why a required RATE and not a session count
+
+A raw "16 left" only falls when you train, so a skipped week is indistinguishable from a trained one
+until the deadline arrives and the shortfall is unrecoverable. `left / weeksRemaining` rises on its
+own every idle day: 3.0 → 3.4 → 4.1 → 5.0 across three empty weeks on the 22-session plan.
+
+This is also the anti-gaming property, and it is the reason the design survives self-report. The
+count can be padded; the rate cannot be improved by padding it, because the divisor shrinks with the
+calendar whatever gets typed. A false session moves the shortfall to the goal date, where the mirror
+reports it instead of the widget. No verification mechanism was built, deliberately — the user
+controls both ends, so any check is also bypassable, and the honest design is one where lying has no
+payoff rather than one that pretends to detect it.
+
+### Why rolling 7, not a calendar week
+
+A calendar week that starts badly is written off by Wednesday and the counter sits dead until
+Monday. The rolling window re-reads every day, so there are no dead weeks. Which days are used is
+deliberately unconstrained — clustering shows up on its own in the dots (`●●●○○○○` reads
+differently from `●○○●○●○`) without the widget enforcing spacing it has no business enforcing.
+
+### Why the labels A/B
+
+The programme alternates two full-body sessions, so "next" is a **pointer**, not a weekday. There is
+no leg day, therefore no leg day to miss — a gap does not shuffle or skip the rotation, the next
+session simply waits. Removing the named day removes the failure mode where missing Monday derails
+the rest of the week.
+
+### Grading thresholds scale with the plan
+
+Amber at 1.07× and red at 1.34× of the plan's own pace, not fixed sessions/week. A hard-coded
+"3.2 is amber" would silently mean something different the moment `GYM_TOTAL` changes — at a 2/wk
+plan 3.2 is a disaster, at 5/wk it is ahead of schedule. At the shipped 3.0/wk plan these land on
+~3.2 and ~4.0.
+
+### The positional-parsing trap
+
+`gym` is **appended** at Summary col M and never inserted. Summary is parsed by position (§11), so
+anything placed before L would shift `t_cal`–`t_fat` and silently re-score history. Same reason col
+G stays a blank dead slot. `TRACKER_WIDTH` went 10 → 11; existing 10-wide rows read back fine
+because index 10 comes out `undefined`, so **no Tracker rebuild is needed to adopt this**.
+
+One trap worth naming: an object carrying *both* macros and a gym flag
+(`{"cal":640,...,"gym":"B"}`). Returning early on a gym branch would have swallowed the meal;
+checking macros first would have swallowed the session. Either way one half vanishes with no error.
+`payloadItemToRow` now reports `gym` separately from `kind`, and a meal row carries the session in
+col K.
+
+### How to check it
+
+`node backend/test/gym-check.js` (Code.gs paths, 48 assertions) and `backend/test/GymDriver.kt`
+compiled against the real `MacroModel`/`CsvParser`/`GymCalculator` (48 assertions). Scenarios that
+must stay green after any change:
+
+| scenario | what it proves |
+| --- | --- |
+| idle 0/7/14/21 days | the required rate rises on its own; two idle weeks reads red |
+| two sessions, one date | collapses to 1 — no banking ahead |
+| macros + gym in one object | neither half is swallowed |
+| legacy 10-wide Tracker / 12-col Summary | old rows still parse, gym reads null |
+| budget met early | `left` floors at 0, green not red, headline flips to "done" |
+| on and past the goal date | no divide-by-zero, no negative rate |
+| label `"b"` / `true` / `"Z"` / `false` | normalisation, and that `false` is ignored not counted |

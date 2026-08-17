@@ -78,11 +78,13 @@ class ChartWorker(context: Context, params: WorkerParameters) :
             val successfulCount = MacroCalculator.successfulDays(entries, targetHistory, today)
             val weightSeries = WeightCalculator.series(entries, weightTarget, today)
             val tdeeResult = TdeeCalculator.compute(entries, today)
+            val gymStats = GymCalculator.compute(entries, today, GYM_START, GOAL_DATE, GYM_TOTAL)
 
             // Skip the re-render+push entirely when nothing that affects pixels changed
             // (includes the page, so a page toggle always re-renders).
             val sig = signature(wPx, hPx, page, todayEntry, weekly, todayTargets,
-                successfulCount, totalDays, daysLeft, weightSignature(weightSeries), energySignature(tdeeResult))
+                successfulCount, totalDays, daysLeft, weightSignature(weightSeries),
+                energySignature(tdeeResult) + "|" + gymSignature(gymStats))
             if (sig == WidgetPrefs.signature(applicationContext, id) &&
                 BitmapCache.load(applicationContext, id) != null) {
                 continue
@@ -90,7 +92,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
 
             // Pages: 0 = Today (macros), 1 = Energy (burn), 2 = Weight.
             val bmp = when (page) {
-                1 -> EnergyRenderer.render(tdeeResult, weightTarget, page,
+                1 -> EnergyRenderer.render(tdeeResult, weightTarget, gymStats, page,
                     SheetWidgetProvider.PAGE_COUNT, wPx, hPx)
                 2 -> WeightRenderer.render(weightSeries, weightTarget, page,
                     SheetWidgetProvider.PAGE_COUNT, wPx, hPx)
@@ -173,6 +175,15 @@ class ChartWorker(context: Context, params: WorkerParameters) :
     private fun energySignature(t: TdeeResult): String =
         "${t.tdee}:${t.lbPerWeek}:${t.avgIntake}:${t.windowDays}:${t.collecting}:${t.daysNeeded}"
 
+    /** Compact fingerprint of the training block. Includes requiredPerWeek because it moves with
+     *  the calendar, not just with the data — the page must re-render on a day when nothing was
+     *  logged, or the rising pace would sit frozen at yesterday's value. */
+    private fun gymSignature(g: GymStats): String {
+        if (!g.configured) return "none"
+        return "${g.done}:${g.left}:${g.requiredPerWeek}:${g.nextSession}:${g.daysSinceLast}:" +
+            g.last7.joinToString("") { if (it) "1" else "0" }
+    }
+
     /** Compact fingerprint of the weight page's data, for the render-skip signature. */
     private fun weightSignature(s: WeightSeries): String {
         if (!s.hasData) return "none"
@@ -192,5 +203,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
         private val GOAL_LABEL: String = BuildConfig.GOAL_LABEL
         private val CHALLENGE_START: LocalDate = LocalDate.parse(BuildConfig.CHALLENGE_START) // green-day tally start
         private val PHASE_LABEL: String = BuildConfig.PHASE_LABEL                          // shown left of "Today"
+        private val GYM_START: LocalDate = LocalDate.parse(BuildConfig.GYM_START)          // session budget starts here
+        private const val GYM_TOTAL: Int = BuildConfig.GYM_TOTAL                           // 0 = no plan, block hidden
     }
 }

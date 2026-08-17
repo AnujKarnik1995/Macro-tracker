@@ -76,7 +76,11 @@ data class LogEntry(
     val exerciseBurn: Float? = null,
     /** Per-day macro target CENTERS from Summary cols I–L (t_cal/t_pro/t_carb/t_fat), or null when
      *  the row has no computed targets — the widget then falls back to the static config bands. */
-    val targetCenters: Map<MacroType, Float>? = null
+    val targetCenters: Map<MacroType, Float>? = null,
+    /** Strength session logged that day (Summary col M): "A" or "B", null if none.
+     *  A checkbox, not a quantity — it never feeds a macro target. Absence IS the miss; there is
+     *  no "logged a rest day" value, by design. */
+    val gym: String? = null
 )
 
 /** Result of the weekly average computation.

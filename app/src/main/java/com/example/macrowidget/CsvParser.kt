@@ -41,8 +41,12 @@ object CsvParser {
     /**
      * Summary tab. Columns by position:
      *   A date, B Cal, C Protein, D Carbs, E Fat, F weight, G unused (always blank), H burn,
-     *   I t_cal, J t_pro, K t_carb, L t_fat   (per-day target centers, written by Apps Script).
+     *   I t_cal, J t_pro, K t_carb, L t_fat   (per-day target centers, written by Apps Script),
+     *   M gym  ("A"/"B" when a strength session was logged that day, blank otherwise).
      * First row is assumed to be a header and skipped.
+     *
+     * Every column past E is read with getOrNull, so a sheet published before the gym column
+     * existed still parses — those rows simply come back with gym = null.
      */
     fun parseLog(csv: String): List<LogEntry> {
         val all = rows(csv)
@@ -65,7 +69,12 @@ object CsvParser {
             cols.getOrNull(9)?.let { num(it) }?.let { centers[MacroType.PROTEIN] = it }
             cols.getOrNull(10)?.let { num(it) }?.let { centers[MacroType.CARBS] = it }
             cols.getOrNull(11)?.let { num(it) }?.let { centers[MacroType.FAT] = it }
-            LogEntry(date, vals, weight, burn, if (centers.isEmpty()) null else centers)
+            // Gym session label (col M). Anything non-blank counts as a session; an unrecognised
+            // label still counts as trained and just falls back to "A" for the rotation pointer.
+            val gym = cols.getOrNull(12)?.trim()?.trim('"')?.uppercase()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { if (it == "B") "B" else "A" }
+            LogEntry(date, vals, weight, burn, if (centers.isEmpty()) null else centers, gym)
         }
     }
 

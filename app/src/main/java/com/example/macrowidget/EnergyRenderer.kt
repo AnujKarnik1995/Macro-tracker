@@ -30,6 +30,7 @@ object EnergyRenderer {
     fun render(
         tdee: TdeeResult,
         band: WeightTarget?,
+        gym: GymStats,
         page: Int,
         pageCount: Int,
         widthPx: Int,
@@ -61,13 +62,23 @@ object EnergyRenderer {
                 color = WHITE; textSize = titleSize; isFakeBoldText = true; textAlign = Paint.Align.CENTER
             })
 
+        val regionTop0 = padV + titleSize
+        val regionH0 = footerTop - regionTop0
+
+        // The training block is drawn whenever a plan is configured — including while TDEE is still
+        // collecting. Session counting needs no weigh-ins and no window, so gating it behind the
+        // energy data would blank the one number that works from day one.
+        val squeeze = if (gym.configured) 0.68f else 1.0f
+
         // ===== collecting state =====
         if (tdee.collecting || tdee.tdee == null) {
-            c.drawText("Measuring your burn", cx, h * 0.44f,
+            val mid = regionTop0 + regionH0 * squeeze * 0.45f
+            c.drawText("Measuring your burn", cx, mid,
                 Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MUTED; textSize = subSize * 1.2f; textAlign = Paint.Align.CENTER })
             c.drawText("${tdee.daysNeeded} more day${if (tdee.daysNeeded == 1) "" else "s"} of data",
-                cx, h * 0.44f + subSize * 1.8f,
+                cx, mid + subSize * 1.8f,
                 Paint(Paint.ANTI_ALIAS_FLAG).apply { color = FAINT; textSize = subSize; textAlign = Paint.Align.CENTER })
+            if (gym.configured) drawTraining(c, left, right, cx, regionTop0, regionH0, subSize, w, gym)
             WidgetChrome.drawFooter(c, left, right, footerTop, footerH, page, pageCount)
             return bmp
         }
@@ -78,8 +89,10 @@ object EnergyRenderer {
         // Lay the body out across the whole region between the title and the footer, anchoring
         // each element to a fraction of that height so it fills the tile instead of clustering
         // at the top (the clamped text sizes otherwise leave the lower half empty on big tiles).
-        val regionTop = padV + titleSize
-        val regionH = footerTop - regionTop
+        // `squeeze` compresses the energy half to make room for the training block underneath;
+        // it is 1.0 when there is no plan, so the page is pixel-identical to before in that case.
+        val regionTop = regionTop0
+        val regionH = regionH0 * squeeze
 
         // ===== hero: TDEE =====
         val heroSize = clamp(avail * 0.175f, 40f, 132f)
@@ -150,8 +163,80 @@ object EnergyRenderer {
             c.drawText(actText, cx, actY, ap)
         }
 
+        if (gym.configured) drawTraining(c, left, right, cx, regionTop0, regionH0, subSize, w, gym)
+
         WidgetChrome.drawFooter(c, left, right, footerTop, footerH, page, pageCount)
         return bmp
+    }
+
+    /**
+     * The training block: divider, header, seven day-dots, the required-rate headline and the
+     * next-session caption. Positioned against the FULL region (regionTop0/regionH0) rather than
+     * the squeezed one, so it always occupies the same bottom third regardless of whether the
+     * energy half above it is in its collecting or its measured state.
+     */
+    private fun drawTraining(
+        c: Canvas, left: Float, right: Float, cx: Float,
+        regionTop: Float, regionH: Float, subSize: Float, w: Int, gym: GymStats
+    ) {
+        val col = when (GymCalculator.zone(gym)) {
+            2 -> RED
+            1 -> AMBER
+            else -> GREEN
+        }
+
+        // divider
+        c.drawLine(left + subSize, regionTop + regionH * 0.70f, right - subSize, regionTop + regionH * 0.70f,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AXIS; strokeWidth = max(1f, w * 0.0032f) })
+
+        // header
+        c.drawText("TRAINING", cx, regionTop + regionH * 0.755f,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = FAINT; textSize = subSize * 0.72f; isFakeBoldText = true
+                textAlign = Paint.Align.CENTER; letterSpacing = 0.18f
+            })
+
+        // ===== seven day-dots, oldest left, today on the right =====
+        // Deliberately raw: a filled dot is a session, an empty one is not. No "rest day" state,
+        // because there is no rest-day log — absence IS the miss. Clustering shows up on its own
+        // here (●●●○○○○ reads differently from ●○○●○●○) without the widget having to say anything.
+        val dotR = clamp(w * 0.019f, 5f, 14f)
+        val gap = dotR * 3.4f
+        val n = gym.last7.size
+        val dotsW = gap * (n - 1)
+        val x0 = cx - dotsW / 2f
+        val dotY = regionTop + regionH * 0.828f
+        val onPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col }
+        val offPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AXIS }
+        gym.last7.forEachIndexed { i, trained ->
+            c.drawCircle(x0 + gap * i, dotY, dotR, if (trained) onPaint else offPaint)
+        }
+        // today gets a halo so the row reads as a timeline rather than a plain tally
+        if (gym.last7.isNotEmpty()) {
+            c.drawCircle(x0 + gap * (n - 1), dotY, dotR * 1.6f,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = if (gym.last7.last()) col else FAINT
+                    style = Paint.Style.STROKE
+                    strokeWidth = max(1f, w * 0.0035f)
+                    alpha = 115
+                })
+        }
+
+        // ===== headline: sessions left + the pace they now demand =====
+        val hp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = col; textSize = subSize * 1.1f; isFakeBoldText = true; textAlign = Paint.Align.CENTER
+        }
+        val headline = GymCalculator.headline(gym)
+        fitToWidth(hp, headline, right - left)
+        c.drawText(headline, cx, regionTop + regionH * 0.918f, hp)
+
+        // ===== caption: which session is up next =====
+        val cp = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = FAINT; textSize = subSize * 0.8f; textAlign = Paint.Align.CENTER
+        }
+        val caption = GymCalculator.caption(gym)
+        fitToWidth(cp, caption, right - left)
+        c.drawText(caption, cx, regionTop + regionH * 0.985f, cp)
     }
 
     /** Green in-zone, amber over-cut (rate > upper), red under-cut (rate < lower), neutral if no band. */
