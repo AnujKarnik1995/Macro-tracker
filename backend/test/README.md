@@ -16,7 +16,7 @@ Exit 0 = every output identical. Exit 1 = prints the group that moved and both v
 **Group sets may differ between versions.** The runner compares the **intersection** of the two
 versions' output groups and prints `ONLY IN OLD (removed)` / `ONLY IN NEW (added)` for the rest, so a
 function that was deleted or added is announced rather than silently scored as a pass or a diff. This
-is what let the §31 burn deletion be proved surgical: every surviving group identical, only the burn
+is what let the §16 burn deletion be proved surgical: every surviving group identical, only the burn
 groups gone. It also bridges renames — `refreshDate` vs the four old `update*Summary` wrappers are
 called through a capability check, with an explicit group list so both write the same cells.
 
@@ -40,7 +40,7 @@ back to UTC.
 **Known sensitivity (not a regression, but load-bearing).** Under the UTC-midnight regime,
 `normDate` reads every date one day early, the upsert stops matching, and rows start duplicating.
 Nothing in the widget dedupes by date and `successfulDays()` counts rows — so a duplicate green day
-is counted twice. See ASSUMPTIONS.md §17. If date cells ever get into that shape, the streak inflates
+is counted twice. See DESIGN-LOG.md §14. If date cells ever get into that shape, the streak inflates
 silently. A `verifySummaryIntegrity()` check that logs a warning on duplicate logical dates is the
 cheap guard.
 
@@ -56,7 +56,7 @@ passing through untouched, multi-day gaps pro-rating rather than banking unlimit
 landing when there is no prior anchor, re-entrancy (a same-day re-run must measure from the previous
 *day*, not from the row it is about to overwrite), latest-prior-anchor selection under unsorted rows,
 and that the gate is allowed to return a sub-floor value — flooring is the caller's job and happens
-after. Exit 0 = all pass. ASSUMPTIONS.md §29.
+after. Exit 0 = all pass. DESIGN-LOG.md §8.
 
 ## 1c. Date-parser unit check — `date-check.js` (Node)
 
@@ -70,7 +70,7 @@ node date-check.js
 in both shapes, `MM-DD-YYYY` and dotted forms rejected, non-string input, and that the function
 round-trips its own output. Then that a supplied-but-unreadable date logs `UNPARSEABLE DATE` while an
 absent date stays silent — the distinction that made the 15 Aug 2026 misdating invisible.
-Exit 0 = all pass. ASSUMPTIONS.md §30.
+Exit 0 = all pass. DESIGN-LOG.md §15.
 
 ## 2. Golden test — the real Tracker and Form responses (Node)
 
@@ -135,7 +135,7 @@ It also pins the specific regression it was written for: with a gym plan configu
 number used to be drawn **through** the page title — 7.9px of overlap on a 687x687 tile — because
 the content region was squeezed by 0.68 for the training block while the type kept sizing off the
 full tile. Every number on the page was correct; they were simply painted on top of one another,
-which is why no other test in this directory noticed. See ASSUMPTIONS.md §27.
+which is why no other test in this directory noticed. See DESIGN-LOG.md §12.
 
 ## Suggested workflow for a refactor
 

@@ -40,24 +40,17 @@ object TdeeCalculator {
     const val KCAL_PER_LB = 3500f
 
     /**
-     * 42 days — must match Code.gs TDEE_WINDOW_DAYS. If the two drift apart, the number on page 2
-     * stops describing the targets the sheet is actually prescribing.
+     * Must match Code.gs TDEE_WINDOW_DAYS. If the two drift apart, the number on page 2 stops
+     * describing the targets the sheet is actually prescribing.
      *
-     * Short least-squares fits are dominated by their edges: in a 20-day fit the four edge weigh-ins
-     * carry ~58% of the slope and the four middle ones ~3%, so one water-skewed reading at the window
-     * edge moves TDEE by hundreds of kcal. The 2 Aug 2026 overshoot measured it — 20 days read 2443,
-     * then 2107 five days later, a 336 kcal round trip on an unchanged body — and 28 days fixed that
-     * particular failure (2325, then 2253; swing 72).
+     * The window has two lower bounds and must clear both. Short least-squares fits are dominated by
+     * their edge weigh-ins, so one water-skewed reading at the boundary moves TDEE by hundreds of
+     * kcal. And a carb-driven glycogen swing runs a few weeks; a window it fits inside averages the
+     * water-loading and water-dumping halves together and reports a slope that is neither.
      *
-     * 28 was still too short for a different one. A carb swing moves glycogen and its bound water
-     * within a day or two, and 22 Aug 2026 caught a 28-day window straddling exactly one such cycle:
-     * a flat water-loading half (+0.07 lb/wk) and a steep water-dumping half (-1.43 lb/wk) averaging
-     * to -0.62 lb/wk against a true ~0.85. The 42-, 49- and 56-day windows all read -0.84 to -0.88 on
-     * the same data. 42 is the shortest that a single glycogen cycle cannot swallow whole.
-     *
-     * Exponential weighting was tested and made it worse at every half-life: up-weighting recent
-     * points re-creates the endpoint leverage the long window exists to remove.
-     * See ASSUMPTIONS.md §8 and §28.
+     * 42 is the shortest length clearing both. Do not shorten it, and do not add exponential
+     * weighting — up-weighting recent points re-creates the endpoint leverage the long window exists
+     * to remove. DESIGN-LOG.md §2.
      */
     const val DEFAULT_WINDOW_DAYS = 42
 
@@ -70,8 +63,8 @@ object TdeeCalculator {
     private const val INTAKE_COMPLETE_FRAC = 0.65f
 
     /**
-     * @param windowDays trailing window length (default 28). The window ends *yesterday*
-     *        (completed days only) and spans [windowDays] days back from there.
+     * @param windowDays trailing window length; defaults to [DEFAULT_WINDOW_DAYS]. The window ends
+     *        *yesterday* (completed days only) and spans [windowDays] days back from there.
      */
     fun compute(
         entries: List<LogEntry>,
@@ -119,11 +112,10 @@ object TdeeCalculator {
      * Drops days whose logged calories are implausibly low for a COMPLETE day — a log that was
      * started and abandoned rather than a genuinely light day. Mirrors Code.gs completeIntakes().
      *
-     * Judged against the window's own MEDIAN, not a fixed number and deliberately NOT against
-     * protein. Protein looks like the obvious signal and is the wrong one: on real data, seven of
-     * eight low-protein days (e.g. 2040 kcal at 106 g) were full days of eating badly. Dropping
-     * those would bias the intake mean UP and inflate TDEE. Median rather than mean so the outliers
-     * cannot move their own threshold.
+     * Judged against the window's own MEDIAN, and deliberately NOT against protein. Protein looks
+     * like the obvious signal for a half-logged day and is the wrong one — most low-protein days are
+     * full days of eating badly, and dropping them biases the intake mean UP and inflates TDEE.
+     * Median rather than mean, so an outlier cannot move its own threshold. DESIGN-LOG.md §3.
      */
     private fun completeIntakes(intakes: List<Pair<LocalDate, Float>>): List<Pair<LocalDate, Float>> {
         if (intakes.size < 7) return intakes

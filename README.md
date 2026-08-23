@@ -39,12 +39,12 @@ The project grew in layers, each committed as it stabilized:
 6. **Training-burn flex — built, then deleted.** The daily target briefly flexed with the day's
    logged training calories. Switched off on 9 Aug 2026 and removed entirely on 23 Aug: resistance
    work is already inside an intake-anchored TDEE, so paying calories for it double-counts, and the
-   watch's "active calories" were ~2x a realistic net cost. ASSUMPTIONS.md §24, §31.
+   watch's "active calories" were ~2x a realistic net cost. DESIGN-LOG.md §16.
 7. **Damping the loop.** Live operation exposed the design's own feedback path: carbs are the plug,
    carbs move glycogen and its bound water within a day or two, and the scale that reads that water
    is the controller's only sensor. The window went to **42 days** so one glycogen cycle can't fill
    it, and the anchor got a **50 kcal/week slew limit** so the controller can no longer issue the
-   large carb swing that starts the cycle. ASSUMPTIONS.md §28–29.
+   large carb swing that starts the cycle. DESIGN-LOG.md §2–29.
 
 ## Intent
 
@@ -114,11 +114,11 @@ and a ≥ 14-day span** within the window; otherwise it reports how many more da
 
 Window length has been raised twice, each time by a measured failure. **20 → 28** because in a
 20-day fit the four edge weigh-ins carry ~58% of the slope, so one water-low reading at the edge
-swung TDEE by hundreds of kcal (§8). **28 → 42** because 28 days is still short enough for a single
+swung TDEE by hundreds of kcal (§2). **28 → 42** because 28 days is still short enough for a single
 carb-driven glycogen swing to fill the whole window: on 22 Aug 2026 a 28-day window straddled one
 water cycle — a flat loading half and a steep dumping half — and blended them into −0.62 lb/wk
 against a true ~0.85, cutting the target 605 kcal in 18 days while the 42-, 49- and 56-day windows
-all read −0.84 to −0.88 (ASSUMPTIONS.md §28). The rule both times: the window must be longer than the
+all read −0.84 to −0.88 (DESIGN-LOG.md §2). The rule both times: the window must be longer than the
 artifact you are trying not to measure.
 
 ### Dynamic constant-deficit targets
@@ -136,9 +136,9 @@ reporting measurement error, and its *speed* is enough to identify it. Slow real
 gate; scale noise does not.
 
 Applied **before** the floor, so the floor stays an exact hard stop. It also closes the loop that
-caused §28: the ungated system prescribed 2312 kcal, which meant 316 g of carbs, which loaded
+caused §2: the ungated system prescribed 2312 kcal, which meant 316 g of carbs, which loaded
 glycogen and water, which corrupted the very window the target was computed from. A gated target
-never issues that prescription (ASSUMPTIONS.md §29).
+never issues that prescription (DESIGN-LOG.md §8).
 
 After a deliberate change to the estimator — a window length, a deficit, a repaired history — run
 **`reseedTargetsToday()`** once so the correction lands immediately instead of crawling at 50/wk from
@@ -173,20 +173,20 @@ is no leg day, hence no leg day to miss. A gap doesn't shuffle the rotation, the
 
 Set `GYM_START` and `GYM_TOTAL` in `config.properties`; `GYM_TOTAL=0` hides the block. Grading is
 relative to the plan's own pace (amber at 1.07×, red at 1.34×), so the colors stay meaningful if you
-change the plan. See ASSUMPTIONS.md §26.
+change the plan. See DESIGN-LOG.md §13.
 
 ### Training burn — removed
-The workout-calorie flex is gone from the code, not flagged off (ASSUMPTIONS.md §31). `burn` payload
+The workout-calorie flex is gone from the code, not flagged off (DESIGN-LOG.md §16). `burn` payload
 items are ignored like any other unknown field.
 
 `Summary` col H and `Tracker` col J stay as permanently **blank reserved slots**. Both sheets are
 parsed by position — by `Code.gs` and by the widget's `CsvParser` independently — so reclaiming
 either column would shift `t_cal`–`t_fat` and silently re-score every historical day. Same reasoning
-as the col G slot (§11).
+as the col G slot (§14).
 
 There is no phone or watch integration: nothing in the app reads health data. Basal/BMR is not
 collected and is not needed — the TDEE regression measures total expenditure from intake and the
-weight trend, so a separate BMR figure would be redundant (§4).
+weight trend, so a separate BMR figure would be redundant (§1).
 
 ### No-blink refresh, offline, retries
 Each refresh paints the last rendered frame instantly (cached to disk) before the fetch runs, so
@@ -289,7 +289,7 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `ChartRenderer.kt` / `EnergyRenderer.kt` / `WeightRenderer.kt` — the three page bitmaps.
 - `EnergyLayout.kt` — page 2's vertical geometry: a stack of disjoint bands that each element draws
   inside, sized from its own band so text cannot overlap. No Android imports, so it is asserted
-  offline rather than eyeballed on a device (ASSUMPTIONS.md §27).
+  offline rather than eyeballed on a device (DESIGN-LOG.md §12).
 - `PageMetrics.kt` — metrics shared by all three pages: the canonical page-title scale and the
   refresh button's radius bounds.
 - `WidgetChrome.kt` — shared footer (refresh button; page dots removed in favor of tap halves).
@@ -300,7 +300,7 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `backend/Code.gs` — the Sheet-side engine: Form ingestion, `Summary` build, TDEE + dynamic-target compute, the anchor slew limit, dated config. Column positions live in the frozen `S`/`T`/`TG`/`R` index maps at the top — never hard-code an index.
 
 ## Docs
-- `ASSUMPTIONS.md` — every tuning decision, why it exists, what it costs, and how to check it.
+- `DESIGN-LOG.md` — every tuning decision, why it exists, what it costs, and how to check it.
 - `CONFIG-PROPOSAL.md` — proposed `Config` sheet for making the dials configurable (design note; not yet built).
 - `backend/test/README.md` — how to run the offline test rig.
 

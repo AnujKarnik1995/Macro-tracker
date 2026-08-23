@@ -1252,6 +1252,27 @@ is treated as an omission rather than an error. That one is still open — `item
 case-sensitively, so `"Date"` still misdates silently. The warning added here does **not** catch it,
 because a wrong *key* leaves `item.date` undefined, which is legitimately "no date supplied".
 
+### Deferred — agreed design for the payload parser  *(23 Aug 2026, not built)*
+
+Two changes, to be done together when the parser is next opened:
+
+1. **`YYYY-MM-DD` is the documented input format.** It is already accepted (above) and already what
+   the pipeline emits and stores; the docs and examples should lead with it and treat `DD/MM/YYYY` as
+   the legacy alternative rather than the primary. Chosen on typing ergonomics and because it sorts,
+   not on parser convenience.
+2. **Keys become case-insensitive.** `date` / `Date` / `DATE`, and likewise `cal`, `p`, `c`, `f`,
+   `weight`, `gym`, should all work. Lowercase each item's keys once at the top of
+   `payloadItemToRow`, before any field access — about six lines, no behaviour change for
+   correctly-cased payloads, and it kills the whole class rather than one field at a time.
+
+Values are already case-tolerant (`normGym` uppercases and trims), so this closes the last asymmetry
+between how the parser treats keys and values. Add cases to `backend/test/gym-check.js` alongside the
+existing value-casing tests, and to `date-check.js` for the `"Date"` spelling.
+
+Ranked by damage if left alone: `Date` is worst — silent *wrong* data, harder to notice than missing
+data — then `Weight` (a dropped weigh-in skews the carb target through TDEE), then the rest, which
+merely vanish.
+
 **Why not accept `MM/DD/YYYY` as well.** It is indistinguishable from `DD/MM/YYYY` for the first
 twelve days of every month — roughly 40% of entries — with no way to recover the intended reading.
 Two unambiguous formats is the maximum this parser should ever have.

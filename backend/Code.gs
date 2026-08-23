@@ -12,12 +12,12 @@ const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro band
 //                   M gym(12)  <- "A"/"B" when a session was logged that day, blank otherwise
 // Summary G/H and Tracker I/J are permanently BLANK reserved slots. Do not reclaim them, and do not
 // insert a column before Summary M: both sheets are parsed by POSITION, so anything that shifts
-// cols I-L re-scores every historical day, silently. New columns are APPENDED. §11, §31.
+// cols I-L re-scores every historical day, silently. New columns are APPENDED. §14, §16.
 const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "unused", "burn", "t_cal", "t_pro", "t_carb", "t_fat", "gym"];
 
 // ----- Column indices: 0-based, and FROZEN -----
 // Every positional access goes through these maps, so `git grep 'S\.'` finds all of them. A shifted
-// column does not throw — it re-scores history against the wrong number. §11, §14.
+// column does not throw — it re-scores history against the wrong number. §14, §9.
 //
 // Array indices are 0-based; Sheets ranges are 1-based. Never hard-code a write column — derive it
 // with sCol() from the same constant the read uses, so the two cannot drift apart.
@@ -42,7 +42,7 @@ function sCol(i) { return i + 1; }
 // weigh-ins, so one water-skewed reading at the boundary moves TDEE by hundreds of kcal. And a
 // carb-driven glycogen swing runs a few weeks; a window it fits inside averages the water-loading
 // and water-dumping halves together and reports a slope that is neither. 42 is the shortest length
-// clearing both. Do not shorten it. §8, §28.
+// clearing both. Do not shorten it. §2.
 const TDEE_WINDOW_DAYS = 42;   // trailing window (completed days) for the TDEE regression
 const KCAL_PER_LB = 3500;
 const MIN_WEIGH_INS = 8, MIN_INTAKE_DAYS = 10, MIN_SPAN_DAYS = 14;   // data bar before targets compute
@@ -56,12 +56,12 @@ const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window 
 // It also bounds how large a carb change the controller can prescribe, which keeps it from driving
 // the glycogen swings that corrupt its own TDEE window.
 //
-// Applied BEFORE the floor, so the floor stays exact. Set to 0 to disable. §29.
+// Applied BEFORE the floor, so the floor stays exact. Set to 0 to disable. §8.
 const TARGET_SLEW_KCAL_PER_WEEK = 50;
 
 // No training-burn flex: a `burn` payload field is ignored like any other unknown key. Resistance
 // work is already inside an intake-anchored TDEE, so crediting calories for it double-counts.
-// §24, §31.
+// §16.
 
 // ----- Strength-session logging -----
 // A gym day is a CHECKBOX, not a calorie figure: {"gym":"A"} or {"gym":"B"}. It never moves a macro —
@@ -69,13 +69,13 @@ const TARGET_SLEW_KCAL_PER_WEEK = 50;
 // "I earned this" loop the constant-deficit design exists to remove. Counted for pacing only.
 //
 // The two labels are the alternating A/B full-body sessions. They drive the widget's "next session"
-// pointer, so the rotation follows the sequence rather than the weekday. §26.
+// pointer, so the rotation follows the sequence rather than the weekday. §13.
 const GYM_LABELS = ["A", "B"];
 // Several submissions for one date collapse to ONE session, last label winning, so a correction just
 // works. Two sessions in a day is still 1 — no banking ahead.
 
 // Basal/BMR is not collected. An intake-anchored TDEE measures total expenditure by construction, so
-// a separate BMR figure would double-count. Items carrying only `basal` are dropped. §4.
+// a separate BMR figure would double-count. Items carrying only `basal` are dropped. §1.
 
 function processMacroPayload(e) {
   if (!e || !e.values) {
@@ -117,7 +117,7 @@ function processMacroPayload(e) {
     // what makes Apps Script send its failure notification; a caught-and-logged error is invisible
     // until a hole turns up in the data weeks later. Nothing is lost by throwing: the raw payload is
     // already in `Form responses 1`, so rebuildTrackerFromResponses() recovers the entry once the
-    // cause is fixed. §32.
+    // cause is fixed..
     Logger.log("Error processing payload: " + err + (err && err.stack ? "\n" + err.stack : ""));
     throw err;
   }
@@ -142,7 +142,7 @@ const TRACKER_WIDTH = 11;
  * carries nothing usable.
  *
  * The null case is load-bearing, not defensive: the response log contains `{basal, date}` items that
- * carry no information now that basal is dead (§4). Returning null keeps them out of Tracker instead
+ * carry no information now that basal is dead (§1). Returning null keeps them out of Tracker instead
  * of writing blank rows.
  *
  * Single source of truth — both processMacroPayload and rebuildTrackerFromResponses go through here,
@@ -151,7 +151,7 @@ const TRACKER_WIDTH = 11;
 function payloadItemToRow(item, fallbackDate) {
   // A date that was SUPPLIED but unreadable falls back to the submission date, which misdates the
   // entry rather than rejecting it. Log it — an absent date is legitimate, an unreadable one is not.
-  // §30.
+  // §15.
   const supplied = item && item.date;
   const parsed = parseInputDate(supplied);
   if (supplied !== undefined && supplied !== null && supplied !== "" && parsed === null) {
@@ -240,7 +240,7 @@ function parseInputDate(s) {
   //
   // MM/DD/YYYY is NOT supported and must never be added: it is indistinguishable from DD/MM/YYYY for
   // the first twelve days of any month, so accepting both would misdate ~40% of entries with no way
-  // to recover the intended reading. §30.
+  // to recover the intended reading. §15.
   let d, m, y;
   let mt = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);           // DD/MM/YYYY
   if (mt) { d = +mt[1]; m = +mt[2]; y = +mt[3]; }
@@ -351,7 +351,7 @@ function refreshDate(dateStr, groups) {
  * The spreadsheet timezone, fetched at most ONCE per execution. normDate() runs on every date cell
  * of every row scan; fetching the tz per cell cost ~2,200 service calls per form submission.
  * Each Apps Script execution gets a fresh global scope, so the cache can't go stale.
- * ASSUMPTIONS.md §16.
+ *
  */
 let _sheetTz = null;
 function sheetTz() {
@@ -381,7 +381,7 @@ function normDate(v) {
  * upserts stays consistent — without that, a second new date in the same run would not see the
  * first append, would also miss, and would append a SECOND row for it. Duplicate Summary rows are
  * the one corruption the widget cannot survive: nothing there dedupes, and successfulDays() counts
- * rows, so a duplicated green day is counted twice. ASSUMPTIONS.md §17.
+ * rows, so a duplicated green day is counted twice. DESIGN-LOG.md §14.
  */
 function upsertSummary(summary, rows, dateStr, col, values, appendIfMissing) {
   for (let i = 1; i < rows.length; i++) {
@@ -511,7 +511,7 @@ function updateTargetsToday() {
  * Run ONCE after a deliberate, evidence-backed change to the estimator — a window length, a deficit,
  * a repaired history — so the correction lands instead of crawling from a value already known to be
  * wrong. Not for unsticking a target you merely dislike: a number you want to override in a hurry is
- * usually the noise the gate exists to block. §29.
+ * usually the noise the gate exists to block. §8.
  */
 function reseedTargetsToday() {
   updateDailyTargets(todayStr(), null, { bypassSlew: true });
@@ -558,7 +558,7 @@ function updateDailyTargets(dateStr, ctx, opts) {
   const tCarb = Math.max(0, (anchor - 4 * cfg.pCenter - 9 * cfg.fCenter) / 4);
 
   // ONE DECIMAL on the centres — do NOT Math.round() to whole grams. The widget rebuilds each band
-  // as [centre ± halfWidth], so a .5 centre rounded up shifts the whole band up 0.5 g. §14.
+  // as [centre ± halfWidth], so a .5 centre rounded up shifts the whole band up 0.5 g. §9.
   const r1 = x => Math.round(x * 10) / 10;
   const vals = [Math.round(anchor), r1(cfg.pCenter), r1(tCarb), r1(cfg.fCenter)];
 
@@ -610,7 +610,7 @@ function previousAnchor(src, dateStr) {
  *
  * UNWEIGHTED — do not add exponential weighting. Up-weighting recent points re-creates the endpoint
  * leverage the long window exists to remove. Intake days below INTAKE_COMPLETE_FRAC of the window
- * MEDIAN are dropped as incomplete logs. Returns null if below the data bar. §8, §13.
+ * MEDIAN are dropped as incomplete logs. Returns null if below the data bar. §2, §3.
  */
 function computeTdee(src, dateStr) {
   const slice = windowRows(src, dateStr);
@@ -647,7 +647,7 @@ function computeTdee(src, dateStr) {
  * Judged against the window's own MEDIAN — not a fixed number, and deliberately NOT against protein
  * (most low-protein days are real full days of eating badly; dropping them would inflate TDEE).
  * Median not mean, so an outlier can't move its own threshold. No-ops on small samples.
- * ASSUMPTIONS.md §13.
+ * DESIGN-LOG.md §3.
  */
 function completeIntakes(cals) {
   if (cals.length < 7) return cals.slice();
