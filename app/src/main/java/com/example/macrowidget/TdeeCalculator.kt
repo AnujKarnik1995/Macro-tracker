@@ -40,16 +40,26 @@ object TdeeCalculator {
     const val KCAL_PER_LB = 3500f
 
     /**
-     * 28 days, not 20 — must match Code.gs TDEE_WINDOW_DAYS.
+     * 42 days — must match Code.gs TDEE_WINDOW_DAYS. If the two drift apart, the number on page 2
+     * stops describing the targets the sheet is actually prescribing.
      *
-     * In a 20-day least-squares fit the four edge weigh-ins carry ~58% of the slope and the four
-     * middle ones ~3%, so one water-low reading at the window edge moves TDEE by hundreds of kcal.
-     * Measured against the 2 Aug 2026 overshoot: the 20-day window read 2443, then 2107 five days
-     * later, against a true ~2250 — a 336 kcal round trip on an unchanged body. The 28-day window
-     * read 2325 then 2253, swing 72. Exponential weighting was tested and made it worse at every
-     * half-life: up-weighting recent points re-creates the endpoint leverage. See ASSUMPTIONS.md.
+     * Short least-squares fits are dominated by their edges: in a 20-day fit the four edge weigh-ins
+     * carry ~58% of the slope and the four middle ones ~3%, so one water-skewed reading at the window
+     * edge moves TDEE by hundreds of kcal. The 2 Aug 2026 overshoot measured it — 20 days read 2443,
+     * then 2107 five days later, a 336 kcal round trip on an unchanged body — and 28 days fixed that
+     * particular failure (2325, then 2253; swing 72).
+     *
+     * 28 was still too short for a different one. A carb swing moves glycogen and its bound water
+     * within a day or two, and 22 Aug 2026 caught a 28-day window straddling exactly one such cycle:
+     * a flat water-loading half (+0.07 lb/wk) and a steep water-dumping half (-1.43 lb/wk) averaging
+     * to -0.62 lb/wk against a true ~0.85. The 42-, 49- and 56-day windows all read -0.84 to -0.88 on
+     * the same data. 42 is the shortest that a single glycogen cycle cannot swallow whole.
+     *
+     * Exponential weighting was tested and made it worse at every half-life: up-weighting recent
+     * points re-creates the endpoint leverage the long window exists to remove.
+     * See ASSUMPTIONS.md §8 and §28.
      */
-    const val DEFAULT_WINDOW_DAYS = 28
+    const val DEFAULT_WINDOW_DAYS = 42
 
     // Minimum-data bar before we show a number rather than "collecting".
     private const val MIN_SPAN_DAYS = 14    // at least two weeks of spread between first/last weigh-in

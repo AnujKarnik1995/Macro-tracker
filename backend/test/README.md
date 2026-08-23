@@ -37,6 +37,34 @@ is counted twice. See ASSUMPTIONS.md §17. If date cells ever get into that shap
 silently. A `verifySummaryIntegrity()` check that logs a warning on duplicate logical dates is the
 cheap guard.
 
+## 1b. Slew-limit unit check — `slew-check.js` (Node)
+
+```bash
+cd backend/test
+node slew-check.js
+```
+
+11 assertions over `slewAnchor` / `previousAnchor`: one-day clamp in both directions, small moves
+passing through untouched, multi-day gaps pro-rating rather than banking unlimited slack, a free
+landing when there is no prior anchor, re-entrancy (a same-day re-run must measure from the previous
+*day*, not from the row it is about to overwrite), latest-prior-anchor selection under unsorted rows,
+and that the gate is allowed to return a sub-floor value — flooring is the caller's job and happens
+after. Exit 0 = all pass. ASSUMPTIONS.md §29.
+
+## 1c. Date-parser unit check — `date-check.js` (Node)
+
+```bash
+cd backend/test
+node date-check.js
+```
+
+19 assertions over `parseInputDate` and `payloadItemToRow`'s fallback: both accepted shapes
+(`YYYY-MM-DD`, `DD/MM/YYYY`) with and without zero-padding, surrounding whitespace, impossible dates
+in both shapes, `MM-DD-YYYY` and dotted forms rejected, non-string input, and that the function
+round-trips its own output. Then that a supplied-but-unreadable date logs `UNPARSEABLE DATE` while an
+absent date stays silent — the distinction that made the 15 Aug 2026 misdating invisible.
+Exit 0 = all pass. ASSUMPTIONS.md §30.
+
 ## 2. Golden test — the real Tracker and Form responses (Node)
 
 Proves the Tracker→Summary and Responses→Tracker→Summary paths still reproduce the live sheet.

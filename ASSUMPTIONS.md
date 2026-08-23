@@ -1086,3 +1086,184 @@ the 687x687 gym-on case specifically.
 
 `docs/mockup_energy_layout_fix.svg` is the before/after at 687x687, generated from the renderer's
 own arithmetic rather than drawn by eye.
+
+---
+
+## 28. TDEE window = 42 days — one glycogen cycle must not fit inside it  *(shipped 22 Aug 2026)*
+
+**What.** `TDEE_WINDOW_DAYS = 42` (was 28). Still plain least squares, still unweighted.
+
+**Why.** §8 widened 20 → 28 to kill *endpoint leverage*. That was the right fix for the 2 Aug
+overshoot and it held. But 28 days is still short enough for a single carb-driven water cycle to
+occupy the whole window, and on 22 Aug 2026 exactly that happened.
+
+**The event.** The dynamic system's own first correction prescribed a large carb increase. Carbs went
+165 → 316 g/day over 2–6 Aug. Weight went 134.2 → 136.6 lb in four days:
+
+| | |
+| --- | --- |
+| eaten 2–6 Aug | 10,604 kcal (2121/day) |
+| balance vs TDEE ~2180 | **−296 kcal** — a deficit |
+| tissue that implies | **−0.08 lb** |
+| scale actually moved | **+2.4 lb** |
+| fat gain would require | +8,400 kcal surplus |
+
+It was glycogen and bound water. +151 g of carbs at ~3 g water per gram accounts for ~1.3 lb
+directly, the rest from sodium and gut content.
+
+**What it did to the estimator.** The 28-day window ending 21 Aug split cleanly into the two halves
+of that one cycle:
+
+| segment | days | rate |
+| --- | --- | --- |
+| 25 Jul – 10 Aug (water loading) | 17 | **+0.07 lb/wk** |
+| 11 – 21 Aug (water dumping) | 11 | **−1.43 lb/wk** |
+| **OLS blend over all 28** | 28 | **−0.62 lb/wk** |
+
+Arithmetically correct, physiologically meaningless — the average of a loading phase and a dumping
+phase describes neither. The estimator read 0.62 lb/wk, concluded the cut was **too slow**, and cut
+the target further. The anchor went 1687 → 2312 → 1707 in 18 days.
+
+**Window comparison on the same data, ending 21 Aug:**
+
+| window | rate | TDEE | target @ deficit 375 |
+| --- | --- | --- | --- |
+| 14 days | −1.55 | 2458 | 2083 |
+| 20 days | −0.89 | 2296 | 1921 |
+| **28 days (old)** | **−0.62** | **2082** | **1707** |
+| **42 days (new)** | **−0.84** | **2172** | **1797** |
+| 49 days | −0.88 | 2189 | 1814 |
+| 56 days | −0.88 | 2186 | 1811 |
+
+**Independent cross-checks** (whole-period energy balance, immune to window choice):
+
+| method | TDEE |
+| --- | --- |
+| 7 Jul → 21 Aug, 45 d | 2245 |
+| 7 Jul → 1 Aug, 25 d | 2281 |
+| 12 Jul → 16 Aug, endpoints matched for water state | 2224 |
+
+Truth is **~2200–2250**. Every window ≥ 42 lands within ~50 kcal of it and they agree with each
+other; every window ≤ 28 scatters across 380 kcal. The 28-day figure was low by 120–170.
+
+**Why 42 and not 49 or 56.** 49 and 56 give the same answer on this data because there is not yet
+enough history to distinguish them. 42 is the shortest window that a single glycogen cycle cannot
+swallow whole, and it carries the least adaptation lag of the three.
+
+**Why this is not a repeat of §8's "42 is too slow" rebuttal.** It is the same rebuttal, applied
+again. Window length is not a waiting period — it looks backwards at data already in hand. Reacting
+fast to a signal whose fast component is water is not responsiveness.
+
+**The general lesson.** The controller's actuator is *carbs*, the single most water-reactive macro,
+and its sensor is a morning scale weight. That is a direct actuator→sensor path with a 1–2 day
+constant, against the 14-day constant of the fat signal it is trying to measure. The window must be
+long enough that the fast path averages out. §29 attacks the same problem from the other end.
+
+**Note on the weigh-in protocol.** Fasted, post-void, pre-water maximises sensitivity to glycogen
+state — full glycogen means both more water carried and more available to lose overnight. It did not
+cause this error, but it sharpened it. It stays: it is also why residual SD is 0.71 lb (§7), and
+changing it now would inject a step discontinuity and blind the estimator for half a window.
+
+**What it costs.** More adaptation lag: true TDEE drifts down as weight is lost and the estimate
+lags by about half the window, ~40 kcal/day at 42 days (§8), about 0.03 lb/wk. Bought cheaply against
+a 120–170 kcal error.
+
+**How to check.** Segment the window at any large carb change and fit each half separately. If the
+halves disagree by more than ~0.5 lb/wk, the blend is measuring a water cycle, not a trend.
+
+---
+
+## 29. Target slew limit = 50 kcal/week  *(shipped 22 Aug 2026)*
+
+**What.** `TARGET_SLEW_KCAL_PER_WEEK = 50`. The daily anchor may not move further than this from the
+most recent previously-written anchor, pro-rated by days actually elapsed. Applied **before** the
+floor. `reseedTargetsToday()` bypasses it once.
+
+**Why.** Real TDEE cannot move quickly. Ten pounds of loss is worth ~100–150 kcal and takes months.
+So an anchor that moves faster than that is reporting measurement error, not metabolism — and the
+*speed* of a change is sufficient to tell the two apart, without knowing anything else about it.
+Slow, real drift passes the gate; scale noise does not.
+
+**Sized against the event in §28:**
+
+| | 1 Aug | 4 Aug | 22 Aug |
+| --- | --- | --- | --- |
+| what happened | 1687 | **2312** | 1707 |
+| with a 50/wk gate | 1687 | ≤1708 | **≤1837** |
+
+The gated path lands on the measured truth (~1825) by drifting, and never prescribes 316 g of carbs
+— so the glycogen swing that corrupted the window never happens. **The gate prevents the cause, not
+just the symptom.** That is the main argument for it; the smoothing is secondary.
+
+**Simulated over the 46 days after 22 Aug** (TDEE 2225 constant, deficit 375, target eaten exactly,
+no further water shifts — an assumption that flatters the ungated cases):
+
+| configuration | target swing | avg rate | total loss |
+| --- | --- | --- | --- |
+| 28d, no gate | **272 kcal** | 0.74 lb/wk | 4.8 lb |
+| 42d, no gate | 142 | 0.77 | 5.1 |
+| 28d + gate | 136 | 0.83 | 5.4 |
+| **42d + gate** | 177 | 0.81 | 5.3 |
+
+All four converge — the band is reached either way. The gate buys a smoother ride, and the
+simulation understates it: it assumes the ungated 28-day path's 205 kcal weekly jumps produce no
+further water movement, which is exactly the assumption §28 shows to be false.
+
+**Design details, each load-bearing:**
+
+- **Before the floor, not after.** The floor is an anti-starve hard stop and must never be softened
+  by the gate; equally the gate must never hold the anchor below the floor on the way down.
+- **Measured from the last row that *has* an anchor**, pro-rated by elapsed days — a gap in the sheet
+  cannot bank up unlimited slack, and a single day's allowance is always granted.
+- **Strictly-before the target date.** `updateDailyTargets` is re-entrant; measuring against the row
+  being rewritten would clamp each run to its own previous output and freeze the target forever.
+
+**When to bypass.** After a deliberate, evidence-backed change to the estimator — a window length, a
+deficit, a repaired history — run `reseedTargetsToday()` once so the correction does not crawl from a
+value already known to be wrong. Never to unstick a target you merely dislike: a number you want to
+override in a hurry is usually the noise the gate exists to block.
+
+**What it costs.** Genuine step changes in expenditure take ~2 weeks to be fully priced in. Nothing
+physiological produces one, so the cost is close to zero. The real cost is the temptation to bypass.
+
+**How to check.** `Logger` prints a line whenever the gate holds a value. Frequent large holds mean
+the estimator upstream is noisy and the window, not the gate, is the thing to fix.
+
+---
+
+## 30. `parseInputDate` accepts ISO too — and says so when it cannot read a date  *(shipped 23 Aug 2026)*
+
+**What.** `parseInputDate` now accepts `YYYY-MM-DD` alongside `DD/MM/YYYY`. When a `date` key is
+*present but unparseable*, `payloadItemToRow` logs `UNPARSEABLE DATE ...` instead of failing quietly.
+
+**The bug.** The parser rejected the exact format the system itself emits. `parseInputDate` returns
+`YYYY-MM-DD`, `Summary` stores `YYYY-MM-DD`, `addDays`/`windowRows`/`normDate` all speak
+`YYYY-MM-DD` — and the only input shape accepted was `DD/MM/YYYY`. **A parser that rejects its own
+output is a trap**, and it was set for the most natural thing a user could type.
+
+**Why it was invisible.** `payloadItemToRow` did `parseInputDate(item.date) || fallbackDate`. An
+unreadable date is indistinguishable from no date at all, so the entry was silently filed under the
+submission date. Caught 23 Aug 2026 on a back-dated dinner: `{"date": "2026-08-15", "cal": 860, ...}`
+landed on 22 Aug. Both the intake series *and* the day's completeness were wrong, on two days at
+once — the target day stayed under-logged and the submission day gained a phantom 860 kcal.
+
+**Same family as the key-casing bug** (`"Date"` vs `"date"`): a payload the parser cannot understand
+is treated as an omission rather than an error. That one is still open — `item.date` is read
+case-sensitively, so `"Date"` still misdates silently. The warning added here does **not** catch it,
+because a wrong *key* leaves `item.date` undefined, which is legitimately "no date supplied".
+
+**Why not accept `MM/DD/YYYY` as well.** It is indistinguishable from `DD/MM/YYYY` for the first
+twelve days of every month — roughly 40% of entries — with no way to recover the intended reading.
+Two unambiguous formats is the maximum this parser should ever have.
+
+**Verified.** `backend/test/date-check.js`, 19 assertions: both accepted shapes with and without
+zero-padding, whitespace, impossible dates (30 Feb, month 13) in both shapes, `MM-DD-YYYY` and dotted
+forms rejected, non-string input, round-tripping the function's own output, plus fallback behaviour
+and that the warning fires on a bad date and stays silent on an absent one. The differential suite
+moves exactly one fixture slot: `null → "2026-08-09"`, the ISO input. Nothing that parsed before
+parses differently.
+
+**Repairing a misdated entry.** The response log is the source of truth: fix the payload text in
+`Form responses 1`, then run `rebuildTrackerFromResponses()` followed by `rebuildAllSummary()`.
+`rebuildAllSummary` preserves `Summary` I–L verbatim, so per-day targets survive the repair. Editing
+`Tracker` or `Summary` directly does not survive the next nightly rebuild.

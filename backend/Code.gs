@@ -18,12 +18,33 @@ const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro band
 const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "unused", "burn", "t_cal", "t_pro", "t_carb", "t_fat", "gym"];
 
 // ----- TDEE / dynamic-target compute -----
-// 28 not 20: in a 20-day fit the 4 edge weigh-ins carry ~58% of the slope, so one water-low reading
-// at the edge swings TDEE by hundreds of kcal. Caused the 2 Aug 2026 overshoot. ASSUMPTIONS.md §8.
-const TDEE_WINDOW_DAYS = 28;   // trailing window (completed days) for TDEE + typical-burn baseline
+// 42 not 28, and never 20: edge weigh-ins dominate a short least-squares fit (in a 20-day fit the 4
+// edge readings carry ~58% of the slope, the 4 middle ones ~3%), so one water-skewed reading at the
+// window edge swings TDEE by hundreds of kcal. 28 fixed the 2 Aug 2026 overshoot but was still short
+// enough to be captured whole by a single glycogen swing — see the 2-22 Aug 2026 event in
+// ASSUMPTIONS.md §28, where a 28-day window straddled one carb-driven water cycle and read
+// -0.62 lb/wk against a true ~0.85, cutting the target 605 kcal in 18 days. 42/49/56-day windows all
+// read -0.84 to -0.88 on the same data; 42 is the shortest that is not swallowed by one such cycle.
+const TDEE_WINDOW_DAYS = 42;   // trailing window (completed days) for TDEE + typical-burn baseline
 const KCAL_PER_LB = 3500;
 const MIN_WEIGH_INS = 8, MIN_INTAKE_DAYS = 10, MIN_SPAN_DAYS = 14;   // data bar before targets compute
 const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window median = unfinished log
+
+// ----- Target slew limit -----
+// Cap on how fast the daily anchor may move, in kcal per WEEK. Real TDEE cannot move quickly: 10 lb
+// of loss is worth ~100-150 kcal and takes months. So a target that swings faster than this is
+// reporting measurement error, not metabolism, and the *speed* of a change is enough to tell the two
+// apart. Slow, real drift passes the gate; scale noise does not.
+//
+// Sized against the 2-22 Aug 2026 event: the anchor went 1687 -> 2312 -> 1707 in 18 days chasing a
+// glycogen artifact. At 50/wk it would have crept 1687 -> ~1837, landing on the measured truth —
+// and, because it never would have prescribed 316 g of carbs, the water spike that corrupted the
+// TDEE window would not have happened at all. This gate prevents the cause, not just the symptom.
+//
+// Applied to the anchor BEFORE the floor, so the floor is always honoured exactly. Measured from the
+// most recent day that actually has a target, so a gap in the sheet does not bank up slack beyond
+// the elapsed time. Set to 0 to disable. ASSUMPTIONS.md §29.
+const TARGET_SLEW_KCAL_PER_WEEK = 50;
 
 // ----- Training-burn flex: OFF -----
 // false = the workout delta is switched off end to end. Burn payloads are not ingested, existing
@@ -133,7 +154,16 @@ const TRACKER_WIDTH = 11;
  * previously each carried their own copy, already differing in padding width.
  */
 function payloadItemToRow(item, fallbackDate) {
-  const d = parseInputDate(item && item.date) || fallbackDate;
+  // A date that was SUPPLIED but could not be parsed is a silent-misdating hazard: it falls back to
+  // the submission date, so a back-dated entry quietly lands on today and corrupts both the intake
+  // series and the weigh-in series for two days at once. Say so in the log rather than swallowing it.
+  const supplied = item && item.date;
+  const parsed = parseInputDate(supplied);
+  if (supplied !== undefined && supplied !== null && supplied !== "" && parsed === null) {
+    Logger.log('UNPARSEABLE DATE ' + JSON.stringify(supplied) + ' — entry filed under ' + fallbackDate +
+               '. Accepted formats: "DD/MM/YYYY" or "YYYY-MM-DD".');
+  }
+  const d = parsed || fallbackDate;
   const pad = v => { const r = []; for (let i = 0; i < TRACKER_WIDTH; i++) r.push(v[i] === undefined ? "" : v[i]); return r; };
 
   if (isWeightEntry(item)) return { kind: "weight", date: d, row: pad([d, "Weigh-in", "", "", "", "", "", num(item.weight)]) };
@@ -190,9 +220,26 @@ function numOrBlank(v) { const n = num(v); return n === null ? "" : n; }
  *  and returns it normalized to canonical "YYYY-MM-DD", or null if absent/invalid. */
 function parseInputDate(s) {
   if (typeof s !== "string") return null;
-  const mt = s.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);  // DD/MM/YYYY only
-  if (!mt) return null;
-  const d = +mt[1], m = +mt[2], y = +mt[3];
+  const t = s.trim();
+
+  // Two accepted shapes. DD/MM/YYYY is the documented hand-entry form. YYYY-MM-DD is accepted too
+  // because it is the format this function *emits* and the format Summary stores — a parser that
+  // rejects its own output is a trap, and the failure is silent: an unparseable date falls back to
+  // the submission date, so the entry lands on today instead of being refused. Cost one real
+  // misdated dinner on 15 Aug 2026.
+  //
+  // No other shape. MM/DD/YYYY is deliberately NOT supported and must never be added: it is
+  // indistinguishable from DD/MM/YYYY for the first twelve days of any month, so accepting both
+  // would silently misdate ~40% of entries with no way to tell which reading was meant.
+  let d, m, y;
+  let mt = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);           // DD/MM/YYYY
+  if (mt) { d = +mt[1]; m = +mt[2]; y = +mt[3]; }
+  else {
+    mt = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);               // YYYY-MM-DD
+    if (!mt) return null;
+    y = +mt[1]; m = +mt[2]; d = +mt[3];
+  }
+
   const dt = new Date(y, m - 1, d);                              // reject impossible dates
   if (dt.getFullYear() !== y || dt.getMonth() !== m - 1 || dt.getDate() !== d) return null;
   const pad = n => (n < 10 ? "0" + n : "" + n);
@@ -464,6 +511,19 @@ function updateTargetsToday() {
 }
 
 /**
+ * One-shot entry point: recompute TODAY's target IGNORING the slew limit, then let the limit govern
+ * from tomorrow on.
+ *
+ * Run this ONCE after a deliberate, evidence-backed change to the estimator (a window length, a
+ * deficit, a repaired history) — otherwise the slew gate makes the correction crawl at 50 kcal/wk
+ * from a value you already know to be wrong. Do NOT run it to "unstick" a target you merely dislike:
+ * the whole point of the gate is that a number you want to override in a hurry is usually noise.
+ */
+function reseedTargetsToday() {
+  updateDailyTargets(todayStr(), null, { bypassSlew: true });
+}
+
+/**
  * Computes the day's target CENTERS and writes Summary cols I-L (t_cal, t_pro, t_carb, t_fat):
  *   anchor = max(TDEE + (today's burn − typical burn) − deficit, floor)
  *   t_carb = (anchor − 4·protein_center − 9·fat_center) / 4        (carbs are the plug)
@@ -471,8 +531,11 @@ function updateTargetsToday() {
  * Leaves the row's I-L untouched (widget then falls back to the static bands) if the config
  * isn't complete or TDEE isn't ready. When burn flex is on and no training is logged → burn 0 →
  * negative delta vs the all-days baseline, which is correct: a rest day costs less than average.
+ *
+ * The anchor is slew-limited against the most recent previously-written anchor before the floor is
+ * applied — see TARGET_SLEW_KCAL_PER_WEEK. Pass opts.bypassSlew to skip that gate (reseed only).
  */
-function updateDailyTargets(dateStr, ctx) {
+function updateDailyTargets(dateStr, ctx, opts) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const summary = ctx ? ctx.summary : sheetWithHeader(ss, SUMMARY_TAB, SUMMARY_HEADER);
 
@@ -493,7 +556,17 @@ function updateDailyTargets(dateStr, ctx) {
     ? readBurn(rows, dateStr) - typicalBurn(rows, dateStr)   // both all-days figures — like for like
     : 0;
 
-  const anchor = Math.max(tdee + delta - cfg.deficit, cfg.floor);
+  // Slew-limit the anchor, THEN floor it. Order matters: the floor is an anti-starve hard stop and
+  // must never be softened by the gate, while the gate must never be able to hold the anchor below
+  // the floor on the way down.
+  const rawAnchor = tdee + delta - cfg.deficit;
+  const slewed = (opts && opts.bypassSlew) ? rawAnchor : slewAnchor(rows, dateStr, rawAnchor);
+  const anchor = Math.max(slewed, cfg.floor);
+  if (slewed !== rawAnchor) {
+    Logger.log("Slew limit held " + dateStr + ": " + Math.round(rawAnchor) + " -> " +
+               Math.round(slewed) + " kcal (cap " + TARGET_SLEW_KCAL_PER_WEEK + "/wk).");
+  }
+
   const tCarb = Math.max(0, (anchor - 4 * cfg.pCenter - 9 * cfg.fCenter) / 4);
 
   // ONE DECIMAL on the centres — do NOT Math.round() to whole grams. The widget rebuilds each band
@@ -503,6 +576,46 @@ function updateDailyTargets(dateStr, ctx) {
   const vals = [Math.round(anchor), r1(cfg.pCenter), r1(tCarb), r1(cfg.fCenter)];
 
   upsertSummary(summary, rows, dateStr, 9, vals, true);   // cols I-L
+}
+
+/**
+ * Clamps `rawAnchor` to within TARGET_SLEW_KCAL_PER_WEEK of the most recent previously-written
+ * anchor, pro-rated by the number of days actually elapsed since it.
+ *
+ * Returns rawAnchor unchanged when the gate is disabled or there is no earlier anchor to measure
+ * from — a first run must be free to land wherever the data says.
+ */
+function slewAnchor(src, dateStr, rawAnchor) {
+  if (!TARGET_SLEW_KCAL_PER_WEEK) return rawAnchor;
+  const prev = previousAnchor(src, dateStr);
+  if (!prev) return rawAnchor;
+  // Pro-rate by elapsed days so a gap in the sheet cannot bank up unlimited slack, and never allow
+  // less than a single day's worth (a same-day re-run must not be frozen at zero movement).
+  const gap = Math.max(1, daysBetween(prev.date, dateStr));
+  const allow = TARGET_SLEW_KCAL_PER_WEEK * gap / 7;
+  return Math.max(prev.anchor - allow, Math.min(prev.anchor + allow, rawAnchor));
+}
+
+/**
+ * Most recent Summary row STRICTLY BEFORE dateStr that carries a numeric t_cal (col I), as
+ * { date, anchor }, or null if there is none.
+ *
+ * Strictly-before matters: updateDailyTargets is re-entrant (a late submission re-runs the day), and
+ * measuring against the row being rewritten would clamp each run to its own previous output and
+ * freeze the target permanently.
+ */
+function previousAnchor(src, dateStr) {
+  const rows = summaryValues(src);
+  if (!rows) return null;
+  let best = null;
+  for (let i = 1; i < rows.length; i++) {
+    const d = normDate(rows[i][0]);
+    if (!d || d >= dateStr) continue;
+    const v = num(rows[i][8]);   // col I = t_cal
+    if (v === null) continue;
+    if (!best || d > best.date) best = { date: d, anchor: v };
+  }
+  return best;
 }
 
 /**

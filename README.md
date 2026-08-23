@@ -41,6 +41,11 @@ The project grew in layers, each committed as it stabilized:
    → Health Connect automation; it never worked reliably and was removed — the burn number is
    hand-entered.) **This flex is currently switched off** (`BURN_DELTA_ENABLED = false`); the
    training is already inside the measured TDEE, so the delta is held at 0. See ASSUMPTIONS.md §24.
+7. **Damping the loop.** Live operation exposed the design's own feedback path: carbs are the plug,
+   carbs move glycogen and its bound water within a day or two, and the scale that reads that water
+   is the controller's only sensor. The window went to **42 days** so one glycogen cycle can't fill
+   it, and the anchor got a **50 kcal/week slew limit** so the controller can no longer issue the
+   large carb swing that starts the cycle. ASSUMPTIONS.md §28–29.
 
 ## Intent
 
@@ -103,22 +108,45 @@ as you drift. Being *under* on fat is treated as danger; under on cals/carbs/pro
 
 ### TDEE (measured, not assumed)
 `TDEE ≈ avg intake − weight_slope(lb/day) × 3500`, where the slope is a least-squares regression
-over the trailing window's weigh-ins (**28 days**, ending yesterday — today's partial intake is
-excluded). 28 rather than 20: in a 20-day fit the four edge weigh-ins carry ~58% of the slope, so a
-single water-low reading at the window edge could swing TDEE by hundreds of kcal (ASSUMPTIONS.md §8).
-Regression over the raw daily points smooths water/glycogen noise without hinging on two endpoints. It only shows a number once past the data bar: **≥ 8 weigh-ins,
-≥ 10 logged-intake days, and a ≥ 14-day span** within the window; otherwise it reports how many
-more days are needed.
+over the trailing window's weigh-ins (**42 days**, ending yesterday — today's partial intake is
+excluded). Regression over the raw daily points smooths water/glycogen noise without hinging on two
+endpoints. It only shows a number once past the data bar: **≥ 8 weigh-ins, ≥ 10 logged-intake days,
+and a ≥ 14-day span** within the window; otherwise it reports how many more days are needed.
+
+Window length has been raised twice, each time by a measured failure. **20 → 28** because in a
+20-day fit the four edge weigh-ins carry ~58% of the slope, so one water-low reading at the edge
+swung TDEE by hundreds of kcal (§8). **28 → 42** because 28 days is still short enough for a single
+carb-driven glycogen swing to fill the whole window: on 22 Aug 2026 a 28-day window straddled one
+water cycle — a flat loading half and a steep dumping half — and blended them into −0.62 lb/wk
+against a true ~0.85, cutting the target 605 kcal in 18 days while the 42-, 49- and 56-day windows
+all read −0.84 to −0.88 (ASSUMPTIONS.md §28). The rule both times: the window must be longer than the
+artifact you are trying not to measure.
 
 ### Dynamic constant-deficit targets
 Computed in the Sheet (`Code.gs`) and written to `Summary` I–L:
-`anchor = max(TDEE + (today's burn − typical burn) − deficit, floor)`, then
+`anchor = max(slew(TDEE + (today's burn − typical burn) − deficit), floor)`, then
 `carb_center = (anchor − 4·protein_center − 9·fat_center) / 4`. Protein/fat centers come from
 their fixed bands; carbs absorb the flex; `t_cal` is the anchor (display only). The workout-burn
 term `(today's burn − typical burn)` is **currently forced to 0** — the training-burn flex is off
 (`BURN_DELTA_ENABLED = false`, see below and ASSUMPTIONS.md §24) — so in practice
-`anchor = max(TDEE − deficit, floor)`. `Floor` and `Deficit` are read from the `Targets` tab as
+`anchor = max(slew(TDEE − deficit), floor)`. `Floor` and `Deficit` are read from the `Targets` tab as
 dated config.
+
+### Target slew limit
+`TARGET_SLEW_KCAL_PER_WEEK = 50` caps how fast the anchor may move, measured from the most recent
+previously-written anchor and pro-rated by days elapsed. Real expenditure cannot move quickly — ten
+pounds of loss is worth ~100–150 kcal and takes months — so an anchor moving faster than that is
+reporting measurement error, and its *speed* is enough to identify it. Slow real drift passes the
+gate; scale noise does not.
+
+Applied **before** the floor, so the floor stays an exact hard stop. It also closes the loop that
+caused §28: the ungated system prescribed 2312 kcal, which meant 316 g of carbs, which loaded
+glycogen and water, which corrupted the very window the target was computed from. A gated target
+never issues that prescription (ASSUMPTIONS.md §29).
+
+After a deliberate change to the estimator — a window length, a deficit, a repaired history — run
+**`reseedTargetsToday()`** once so the correction lands immediately instead of crawling at 50/wk from
+a value already known to be wrong. Not for unsticking a target you merely dislike.
 
 ### Frozen green days
 A day counts as successful when **Protein, Carbs and Fat all land in band** (Calories are
@@ -165,7 +193,7 @@ schedule.
 
 To re-enable, set `BURN_DELTA_ENABLED = true`, then run `rebuildTrackerFromResponses` (restores the
 burn rows), `rebuildAllSummary`, and `createTargetsTrigger` once. When on: burn is submitted as
-`{"burn": 320}` through the Form (add `"date": "DD/MM/YYYY"` to back-date); multiple entries for one
+`{"burn": 320}` through the Form (add `"date": "YYYY-MM-DD"` to back-date); multiple entries for one
 date are **summed**; a day with nothing logged is a **rest day worth 0** so the delta averages to
 zero across the window; and submitting burn re-runs that day's target immediately, so training logged
 after the afternoon trigger still lands.
@@ -238,7 +266,11 @@ or an array of objects:
 ```
 
 `cal`/`p`/`c`/`f` make a meal; `weight` makes a weigh-in; `gym` marks a completed strength session;
-`meal`/`details` are optional labels; add `"date":"DD/MM/YYYY"` to back-date. `burn` is accepted only if the training-burn flex is re-enabled
+`meal`/`details` are optional labels; add `"date":"YYYY-MM-DD"` (or `"DD/MM/YYYY"`) to back-date —
+both are accepted, `MM/DD/YYYY` is not and never will be, since it is indistinguishable from
+`DD/MM/YYYY` for the first twelve days of a month. A date the parser cannot read **falls back to
+the submission date**, so the entry lands on today; the execution log prints `UNPARSEABLE DATE`
+when that happens. Check it after any back-dated entry. `burn` is accepted only if the training-burn flex is re-enabled
 (off by default). Unknown or empty items are ignored. (The payload is plain JSON, so you can type it,
 keep snippets handy, or have an assistant turn "180 g tofu, 1 cup rice" into the object for you.)
 
@@ -266,7 +298,7 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `CsvParser.kt` — parses `Summary` (by position, incl. weight/burn and per-day targets I–L) and `Targets` (by keyword: dated macro bands + the `Weight Loss` row). It does **not** read `Floor`/`Deficit` — those are `Code.gs`-only.
 - `MacroModel.kt` — `LogEntry`, `MacroType`, `Target`, `DatedTarget`, `TargetHistory` (frozen greens), `WeightTarget`.
 - `MacroCalculator.kt` — today's row, weekly average (incl. the week's mean per-day band used to color the rings), successful-day tally, `effectiveTargets` (per-day center ± width, static fallback).
-- `TdeeCalculator.kt` — back-calculated TDEE + loss rate over the trailing window; readiness gate.
+- `TdeeCalculator.kt` — back-calculated TDEE + loss rate over the trailing window (42 days; must match `Code.gs`); readiness gate.
 - `GymCalculator.kt` — session count vs the budget, required per-week rate, rolling-7 dots, A/B rotation pointer.
 - `WeightCalculator.kt` — weekly-average weight, week-over-week rate, in-zone, current-week band.
 - `ColorRamp.kt` — graded palettes and the zone-color function.
@@ -281,7 +313,7 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `SheetFetcher.kt` / `SheetCache.kt` / `BitmapCache.kt` — fetch with retry + conditional GET, per-URL CSV cache, and last-frame cache (no-blink).
 - `SheetWidgetProvider.kt` — update/resize/tap handling (prev/next page + refresh), cached-frame painting, work de-dup + throttle.
 - `WidgetConfigActivity.kt` — the two-URL setup screen.
-- `backend/Code.gs` — the Sheet-side engine: Form ingestion, `Summary` build, TDEE + dynamic-target compute, dated config.
+- `backend/Code.gs` — the Sheet-side engine: Form ingestion, `Summary` build, TDEE + dynamic-target compute, the anchor slew limit, dated config.
 
 ## Docs
 - `ASSUMPTIONS.md` — every tuning decision, why it exists, what it costs, and how to check it.
