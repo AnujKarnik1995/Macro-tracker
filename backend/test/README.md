@@ -13,8 +13,15 @@ node diff-versions.js /path/to/old/Code.gs ../Code.gs
 
 Exit 0 = every output identical. Exit 1 = prints the group that moved and both values.
 
-Compares 13 groups: `computeTdee`, `typicalBurn`, `readBurn`, `readTargetConfig`, `addDays`,
-`daysBetween`, the numeric guards, `parseInputDate`, `completeIntakes`, `regressionSlope`, the full
+**Group sets may differ between versions.** The runner compares the **intersection** of the two
+versions' output groups and prints `ONLY IN OLD (removed)` / `ONLY IN NEW (added)` for the rest, so a
+function that was deleted or added is announced rather than silently scored as a pass or a diff. This
+is what let the §31 burn deletion be proved surgical: every surviving group identical, only the burn
+groups gone. It also bridges renames — `refreshDate` vs the four old `update*Summary` wrappers are
+called through a capability check, with an explicit group list so both write the same cells.
+
+Compares up to 14 groups: `computeTdee`, `typicalBurn`, `readBurn`, `readTargetConfig`, `addDays`,
+`daysBetween`, the numeric guards (burn guards split out separately), `parseInputDate`, `completeIntakes`, `regressionSlope`, the full
 Summary contents after 11 write calls, per-date duplicate-row counts, and Summary after
 `rebuildAllSummary`. Each group runs under **two date regimes** (see below).
 

@@ -36,11 +36,10 @@ The project grew in layers, each committed as it stabilized:
    daily target that holds a steady deficit: `anchor = TDEE + workout_delta − deficit`, floored.
    Protein and fat stay fixed; **carbs are the daily plug** that slides. Calories is a computed
    anchor, never a pass/fail metric.
-6. **Training-burn flex.** The day's strength-training calories go in through the same Google
-   Form, so the daily target can flex with how hard you actually trained. (Originally a Pixel Watch
-   → Health Connect automation; it never worked reliably and was removed — the burn number is
-   hand-entered.) **This flex is currently switched off** (`BURN_DELTA_ENABLED = false`); the
-   training is already inside the measured TDEE, so the delta is held at 0. See ASSUMPTIONS.md §24.
+6. **Training-burn flex — built, then deleted.** The daily target briefly flexed with the day's
+   logged training calories. Switched off on 9 Aug 2026 and removed entirely on 23 Aug: resistance
+   work is already inside an intake-anchored TDEE, so paying calories for it double-counts, and the
+   watch's "active calories" were ~2x a realistic net cost. ASSUMPTIONS.md §24, §31.
 7. **Damping the loop.** Live operation exposed the design's own feedback path: carbs are the plug,
    carbs move glycogen and its bound water within a day or two, and the scale that reads that water
    is the controller's only sensor. The window went to **42 days** so one glycogen cycle can't fill
@@ -124,13 +123,10 @@ artifact you are trying not to measure.
 
 ### Dynamic constant-deficit targets
 Computed in the Sheet (`Code.gs`) and written to `Summary` I–L:
-`anchor = max(slew(TDEE + (today's burn − typical burn) − deficit), floor)`, then
+`anchor = max(slew(TDEE − deficit), floor)`, then
 `carb_center = (anchor − 4·protein_center − 9·fat_center) / 4`. Protein/fat centers come from
-their fixed bands; carbs absorb the flex; `t_cal` is the anchor (display only). The workout-burn
-term `(today's burn − typical burn)` is **currently forced to 0** — the training-burn flex is off
-(`BURN_DELTA_ENABLED = false`, see below and ASSUMPTIONS.md §24) — so in practice
-`anchor = max(slew(TDEE − deficit), floor)`. `Floor` and `Deficit` are read from the `Targets` tab as
-dated config.
+their fixed bands; carbs absorb the flex; `t_cal` is the anchor (display only). `Floor` and
+`Deficit` are read from the `Targets` tab as dated config.
 
 ### Target slew limit
 `TARGET_SLEW_KCAL_PER_WEEK = 50` caps how fast the anchor may move, measured from the most recent
@@ -179,29 +175,18 @@ Set `GYM_START` and `GYM_TOTAL` in `config.properties`; `GYM_TOTAL=0` hides the 
 relative to the plan's own pace (amber at 1.07×, red at 1.34×), so the colors stay meaningful if you
 change the plan. See ASSUMPTIONS.md §26.
 
-### Training burn (currently OFF)
-The training-burn flex is switched off end to end (`BURN_DELTA_ENABLED = false`): burn payloads are
-not ingested, existing burn values are not read, and `Summary` col H is written blank, so the
-workout delta contributes nothing to the daily target. It's off because the historical figures were
-watch "active calories" for resistance work (~2× a realistic net cost), and that training is already
-captured inside the measured TDEE — so nothing is lost by ignoring it (ASSUMPTIONS.md §24).
+### Training burn — removed
+The workout-calorie flex is gone from the code, not flagged off (ASSUMPTIONS.md §31). `burn` payload
+items are ignored like any other unknown field.
 
-The same flag picks the daily targets-trigger time via **`createTargetsTrigger`**: **off → ~03:00**
-(TDEE window ends yesterday; no same-day input to wait for), **on → ~14:30** (afternoon so same-day
-training can land). Flip the flag, then re-run `createTargetsTrigger()` once to move the live
-schedule.
-
-To re-enable, set `BURN_DELTA_ENABLED = true`, then run `rebuildTrackerFromResponses` (restores the
-burn rows), `rebuildAllSummary`, and `createTargetsTrigger` once. When on: burn is submitted as
-`{"burn": 320}` through the Form (add `"date": "YYYY-MM-DD"` to back-date); multiple entries for one
-date are **summed**; a day with nothing logged is a **rest day worth 0** so the delta averages to
-zero across the window; and submitting burn re-runs that day's target immediately, so training logged
-after the afternoon trigger still lands.
+`Summary` col H and `Tracker` col J stay as permanently **blank reserved slots**. Both sheets are
+parsed by position — by `Code.gs` and by the widget's `CsvParser` independently — so reclaiming
+either column would shift `t_cal`–`t_fat` and silently re-score every historical day. Same reasoning
+as the col G slot (§11).
 
 There is no phone or watch integration: nothing in the app reads health data. Basal/BMR is not
 collected and is not needed — the TDEE regression measures total expenditure from intake and the
-weight trend, so a separate BMR figure would be redundant. `Summary` col G is a permanently blank
-slot kept only so the per-day target columns (I–L) don't shift position.
+weight trend, so a separate BMR figure would be redundant (§4).
 
 ### No-blink refresh, offline, retries
 Each refresh paints the last rendered frame instantly (cached to disk) before the fetch runs, so
@@ -251,8 +236,8 @@ Paste `backend/Code.gs` into the Sheet's Apps Script editor. Then, from the edit
    URLs. (First run prompts for authorization.)
 2. Add the `Floor`/`Deficit` rows to `Targets`, then run **`updateTargetsToday`** once.
 3. Create the daily targets trigger (**`createTargetsTrigger`**). Schedule follows
-   `BURN_DELTA_ENABLED`: **~03:00** while burn flex is off (current), **~14:30** when it is on.
-   Re-run after flipping the flag. Optionally also run **`createNightlyRebuildTrigger`** (~00:45)
+   **~03:00** — the TDEE window ends yesterday, so there is no same-day input to wait for.
+   Optionally also run **`createNightlyRebuildTrigger`** (~00:45)
    to rebuild `Tracker`+`Summary` from the raw form responses each night.
 
 **Logging payload.** Each submission is one **JSON** value in the `payload` question — a single object
@@ -270,8 +255,7 @@ or an array of objects:
 both are accepted, `MM/DD/YYYY` is not and never will be, since it is indistinguishable from
 `DD/MM/YYYY` for the first twelve days of a month. A date the parser cannot read **falls back to
 the submission date**, so the entry lands on today; the execution log prints `UNPARSEABLE DATE`
-when that happens. Check it after any back-dated entry. `burn` is accepted only if the training-burn flex is re-enabled
-(off by default). Unknown or empty items are ignored. (The payload is plain JSON, so you can type it,
+when that happens. Check it after any back-dated entry. Unknown or empty items are ignored. (The payload is plain JSON, so you can type it,
 keep snippets handy, or have an assistant turn "180 g tofu, 1 cup rice" into the object for you.)
 
 **Prefer to wire the Form by hand?** Create a Form with one **Paragraph** question titled `payload`;
@@ -313,7 +297,7 @@ auto-refreshes about every 30 min (Android's floor, only while awake).
 - `SheetFetcher.kt` / `SheetCache.kt` / `BitmapCache.kt` — fetch with retry + conditional GET, per-URL CSV cache, and last-frame cache (no-blink).
 - `SheetWidgetProvider.kt` — update/resize/tap handling (prev/next page + refresh), cached-frame painting, work de-dup + throttle.
 - `WidgetConfigActivity.kt` — the two-URL setup screen.
-- `backend/Code.gs` — the Sheet-side engine: Form ingestion, `Summary` build, TDEE + dynamic-target compute, the anchor slew limit, dated config.
+- `backend/Code.gs` — the Sheet-side engine: Form ingestion, `Summary` build, TDEE + dynamic-target compute, the anchor slew limit, dated config. Column positions live in the frozen `S`/`T`/`TG`/`R` index maps at the top — never hard-code an index.
 
 ## Docs
 - `ASSUMPTIONS.md` — every tuning decision, why it exists, what it costs, and how to check it.

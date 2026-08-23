@@ -58,22 +58,35 @@ function observe(codePath, dateFn) {
   const r = (v, n) => v === null || v === undefined ? null : +Number(v).toFixed(n === undefined ? 6 : n);
   const o = {};
   o.computeTdee   = DATES.map(d => r(api.computeTdee(ss, d)));
-  o.typicalBurn   = DATES.map(d => r(api.typicalBurn(ss, d)));
-  o.readBurn      = DATES.map(d => api.readBurn(ss, d));
+  // Burn was deleted in §31. Groups are recorded only when the function exists, so this harness can
+  // still diff a version that has it against one that does not: the burn groups drop out of BOTH
+  // sides' comparison (the runner intersects key sets) while every other group stays live. That is
+  // what lets the deletion be proved surgical rather than merely "it still runs".
+  if (api.typicalBurn) o.typicalBurn = DATES.map(d => r(api.typicalBurn(ss, d)));
+  if (api.readBurn)    o.readBurn    = DATES.map(d => api.readBurn(ss, d));
   o.targetConfig  = DATES.map(d => api.readTargetConfig(ss, d));
   o.addDays       = ['2026-03-07','2026-03-08','2026-11-01','2026-02-28','2026-12-31','2026-01-01']
                       .flatMap(d => [api.addDays(d,1), api.addDays(d,-1), api.addDays(d,28), api.addDays(d,-28)]);
   o.daysBetween   = [['2026-03-01','2026-03-31'],['2026-10-25','2026-11-15'],['2026-01-01','2026-12-31'],
                      ['2026-08-08','2026-08-08'],['2026-08-09','2026-08-01']].map(([a,b]) => api.daysBetween(a,b));
-  o.numericGuards = [undefined,null,'',' ',0,'0',5,'5','abc',NaN,true,false,'1e3','  7 ','$5','1,5']
-                      .map(v => [api.numOrBlank(v), api.isWeightEntry({weight:v}), api.isBurnEntry({burn:v})]);
+  const GUARD_VALUES = [undefined,null,'',' ',0,'0',5,'5','abc',NaN,true,false,'1e3','  7 ','$5','1,5'];
+  // isBurnEntry split into its own group: it was deleted in §31, and folding it into numericGuards
+  // would have taken numOrBlank and isWeightEntry down with it, losing coverage of two functions
+  // that did not change.
+  o.numericGuards = GUARD_VALUES.map(v => [api.numOrBlank(v), api.isWeightEntry({weight:v})]);
+  if (api.isBurnEntry) o.burnGuards = GUARD_VALUES.map(v => api.isBurnEntry({burn:v}));
   o.parseInputDate = ['9/8/2026','09/08/2026','2026-08-09','31/2/2026','','x',null,'1/1/2026'].map(v => api.parseInputDate(v));
   o.completeIntakes = [[1700,1700,1700,1700,1700,1700,1700,1059],[1700,1059],
                        [900,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700,1700]].map(a => api.completeIntakes(a));
   o.regressionSlope = [r(api.regressionSlope([[0,140],[5,139],[10,138]])), r(api.regressionSlope([[3,140]]))];
   // write paths: existing date, brand-new date, and a date with no Tracker rows at all
+  // Bridges the refreshDate refactor: pre-refactor Code.gs exposes four one-group wrappers,
+  // post-refactor it exposes one refreshDate(date, groups). Both must write the SAME cells, so the
+  // group list here is explicit — refreshDate() with no argument would also write `gym`, which the
+  // old wrappers did not, and the comparison would diff on that rather than on real behaviour.
   ['2026-08-08','2026-08-06','2026-09-15'].forEach(d => {
-    api.updateDailySummary(d); api.updateWeightSummary(d); api.updateBurnSummary(d);
+    if (api.refreshDate) api.refreshDate(d, ['macros','weight','burn']);
+    else { api.updateDailySummary(d); api.updateWeightSummary(d); api.updateBurnSummary(d); }
   });
   api.updateDailyTargets('2026-08-09');   // append path
   api.updateDailyTargets('2026-08-08');   // in-place path
@@ -104,11 +117,17 @@ for (const [label, dateFn] of [
 ]) {
   console.log('\n  ' + label);
   const a = observe(OLD, dateFn), b = observe(NEW, dateFn);
-  for (const g of Object.keys(a.o)) {
+  // Compare the INTERSECTION, and name what only one side has. A group present in one version and
+  // absent in the other means a function was added or deleted; that is a legitimate thing to do, but
+  // it must be announced rather than silently scored as a difference (or, worse, as a pass).
+  const only = k => Object.keys(k === 'old' ? a.o : b.o).filter(g => !(g in (k === 'old' ? b.o : a.o)));
+  for (const g of Object.keys(a.o).filter(g => g in b.o)) {
     const same = JSON.stringify(a.o[g]) === JSON.stringify(b.o[g]);
     if (!same) failed.push(label + ' / ' + g);
     console.log('    ' + g.padEnd(24) + (same ? 'identical' : '*** DIFFERS ***'));
   }
+  only('old').forEach(g => console.log('    ' + g.padEnd(24) + 'ONLY IN OLD (removed) — not compared'));
+  only('new').forEach(g => console.log('    ' + g.padEnd(24) + 'ONLY IN NEW (added) — not compared'));
   console.log('    ' + 'service calls'.padEnd(24) +
     'getValues ' + a.counts.getValues + ' -> ' + b.counts.getValues +
     '   tz ' + (a.counts.getActiveSpreadsheet + a.counts.getSpreadsheetTimeZone) +

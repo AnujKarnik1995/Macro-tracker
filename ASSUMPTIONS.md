@@ -1267,3 +1267,103 @@ parses differently.
 `Form responses 1`, then run `rebuildTrackerFromResponses()` followed by `rebuildAllSummary()`.
 `rebuildAllSummary` preserves `Summary` I–L verbatim, so per-day targets survive the repair. Editing
 `Tracker` or `Summary` directly does not survive the next nightly rebuild.
+
+---
+
+## 31. Training burn deleted, not flagged off  *(shipped 23 Aug 2026)*
+
+**What.** `BURN_DELTA_ENABLED` and everything it gated are removed from `Code.gs`: the flag, the
+ingestion branch, `isBurnEntry`, `readBurn`, `typicalBurn`, the workout delta in `updateDailyTargets`,
+the burn accumulator in `aggregateTracker`, the `burn` Summary group, the burn tally, and the
+conditional trigger schedule (now unconditionally ~03:00).
+
+**Why now.** §24 switched it off on 9 Aug and listed a re-enable procedure. Two weeks of operation
+made clear the reasoning was **structural, not circumstantial**: an intake-anchored TDEE already
+contains every calorie the training costs (§4, §5), so a workout delta double-counts by construction.
+That does not stop being true when better burn data arrives. A flag implies a decision that might be
+revisited; this one will not be, and leaving it in cost a live conditional on every ingestion path,
+two functions that existed only to return 0, and a triple guard around a single subtraction (§6 of
+the cleanup review).
+
+**What stays.** `Summary` col H and `Tracker` col J remain permanently **blank reserved slots**.
+Both sheets are parsed by position, by `Code.gs` and by the widget's `CsvParser` independently, so
+reclaiming either column would shift `t_cal`–`t_fat` and silently re-score every historical day —
+exactly the §14 failure. Same treatment as the col G slot (§11). The cost of a dead column is one
+character per row; the cost of reclaiming it is the whole history.
+
+Historical burn values also stay in `Form responses 1`. They are simply never read: a `burn` payload
+item is now ignored like any other unknown field.
+
+**How it was verified.** The refactor (§32) and this deletion were done as **two separate diffs**, so
+neither could hide inside the other:
+
+| gate | result |
+| --- | --- |
+| pre-refactor → refactored, burn still present | ALL GROUPS IDENTICAL, both date regimes |
+| refactored → burn deleted | every surviving group identical; only `typicalBurn`, `readBurn`, `burnGuards` dropped |
+
+`diff-versions.js` now compares the **intersection** of the two versions' output groups and prints
+`ONLY IN OLD (removed)` / `ONLY IN NEW (added)` for the rest. A group that vanishes is announced
+rather than silently scored as a pass — without that, deleting a function would have looked like
+success no matter what else it broke.
+
+**To resurrect.** `git log -S BURN_DELTA_ENABLED -- backend/Code.gs`. Read §24 and this section
+first, and note that re-adding it also means re-adding the `readBurn`/`typicalBurn` groups to the
+differential harness or the change is untested.
+
+---
+
+## 32. `Code.gs` cleanup pass  *(shipped 23 Aug 2026)*
+
+Four changes, all behaviour-preserving. Gate for the whole pass: **ALL GROUPS IDENTICAL** on
+`diff-versions.js` in both date regimes, with burn still present so every comparison group was live.
+
+**1. Column indices are named and frozen.** 26 positional accesses across 12 distinct indices, plus
+five hard-coded column numbers, replaced by frozen maps: `S` (Summary), `T` (Tracker), `TG`
+(Targets), `R` (Form responses). Reads are 0-based, Sheets writes are 1-based, and the file used to
+mix both conventions freely — `previousAnchor` read `rows[i][8]` for the column `updateDailyTargets`
+wrote as `9`, thirty lines apart. Write columns are now derived with `sCol()` from the same constant
+the read uses, so the two cannot drift.
+
+This is risk reduction, not tidiness. A shifted column does not throw; it silently re-scores history
+against the wrong number, which is the most expensive bug class this project has had (§11, §14).
+`git grep 'S\.'` now finds every coupling.
+
+`payloadItemToRow` also stopped building Tracker rows as positional array literals padded with runs
+of `""` — where a miscounted empty string shifted every later field — and now calls `trackerRow({...})`,
+which places fields by name.
+
+**2. Four Summary-group wrappers collapsed into `refreshDate`.** `updateDailySummary`,
+`updateWeightSummary`, `updateBurnSummary` and `updateGymSummary` were one-line wrappers that each
+called `refreshSummary` separately — and `refreshSummary` reads *both* whole sheets on every call.
+
+| | `getValues` |
+| --- | --- |
+| `rebuildToday()` before | **8** |
+| `rebuildToday()` after | **2** |
+
+Whole-suite service calls fell 38 → 26 and timezone lookups 14 → 8, with identical output.
+
+**3. `refreshSummary` is table-driven.** Its four near-identical blocks became one loop over
+`SUMMARY_GROUPS`, where each entry declares its column, how to render it from a day's aggregate, and
+whether it may create a missing row. Key order is the write order and is load-bearing: `macros`
+first, because it is the only group that unconditionally creates the row.
+
+Adding a column group is now one entry instead of coordinated edits in four places — which is how
+`gym` ended up appended at col M with a warning comment rather than slotted in where it belonged.
+
+**4. `processMacroPayload` no longer swallows errors.** It caught everything into `Logger.log` and
+returned normally, so a submission that failed for any reason — bad JSON, a renamed tab, a Sheets
+hiccup — vanished silently: no row, no error, no notification, nothing to notice until a hole
+appeared in the data weeks later. Same family as §30.
+
+It now logs with a stack and **re-throws**, which marks the trigger execution failed and makes Apps
+Script send its failure notification. Nothing is lost by throwing: the raw payload is already safe in
+`Form responses 1`, so `rebuildTrackerFromResponses()` recovers the entry once the cause is fixed.
+A loud failure over recoverable data beats a silent one over corrupted data.
+
+**Considered and rejected.** Inlining `trackerDay` / `emptyTrackerDay` / `dayWeight` / `classifyTarget`
+(small, single-purpose, correctly named); collapsing the `src` polymorphism in `computeTdee` and
+friends (a real wart, but it changes signatures the harness pins — worth doing only alongside a
+change that already touches them); trimming the constants comment block (it is the decision record,
+and it is the most valuable thing in the file).

@@ -66,6 +66,7 @@ function loadCodeGs(codePath, sheetData, tz) {
   };
   const EXPORTS = ['computeTdee','typicalBurn','readBurn','readTargetConfig','normDate','addDays','daysBetween',
     'updateDailyTargets','updateDailySummary','updateWeightSummary','updateBurnSummary','rebuildAllSummary',
+    'refreshDate','refreshSummary','trackerRow',
     'isWeightEntry','isBurnEntry','numOrBlank','parseInputDate','completeIntakes','regressionSlope',
     'createTargetsTrigger','todayStr','sheetTz','rebuildTrackerFromResponses','rebuildToday',
     'processMacroPayload','upsertSummary','summaryValues','num','dayNumber','windowRows'];

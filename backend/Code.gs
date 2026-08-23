@@ -1,5 +1,5 @@
 // ===== CONFIG =====
-const TRACKER_TAB = "Tracker";            // raw log: meals (A-G), weigh-ins (H), training burn (J)
+const TRACKER_TAB = "Tracker";            // raw log: meals (A-G), weigh-ins (H); J reserved/blank
 const SUMMARY_TAB = "Summary";            // STATIC daily totals the widget reads
 const RESPONSES_TAB = "Form responses 1"; // raw Google Form submissions (true source of truth)
 const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro bands + weight band + Floor + Deficit,
@@ -10,75 +10,72 @@ const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro band
 // Summary columns:  A date(0) B cal(1) C p(2) D c(3) E f(4) F weight(5) G unused(6) H burn(7)
 //                   I t_cal(8) J t_pro(9) K t_carb(10) L t_fat(11)   <- per-day target CENTERS (updateDailyTargets)
 //                   M gym(12)  <- "A"/"B" when a session was logged that day, blank otherwise
-// Col G/I ("unused") is a dead slot, kept BLANK on purpose — Summary is parsed by POSITION, so
-// collapsing it would shift cols I-L and re-score history. ASSUMPTIONS.md §11.
-//
-// `gym` is APPENDED at col M, never inserted. Same reason: the widget parses Summary by position,
-// so putting it anywhere before L would shift the target columns and silently re-score history.
+// Summary G/H and Tracker I/J are permanently BLANK reserved slots. Do not reclaim them, and do not
+// insert a column before Summary M: both sheets are parsed by POSITION, so anything that shifts
+// cols I-L re-scores every historical day, silently. New columns are APPENDED. §11, §31.
 const SUMMARY_HEADER = ["date", "cal", "p", "c", "f", "weight", "unused", "burn", "t_cal", "t_pro", "t_carb", "t_fat", "gym"];
 
+// ----- Column indices: 0-based, and FROZEN -----
+// Every positional access goes through these maps, so `git grep 'S\.'` finds all of them. A shifted
+// column does not throw — it re-scores history against the wrong number. §11, §14.
+//
+// Array indices are 0-based; Sheets ranges are 1-based. Never hard-code a write column — derive it
+// with sCol() from the same constant the read uses, so the two cannot drift apart.
+const S = Object.freeze({          // Summary
+  DATE: 0, CAL: 1, P: 2, C: 3, F: 4, WEIGHT: 5, UNUSED: 6, BURN: 7,   // UNUSED, BURN: blank, reserved
+  T_CAL: 8, T_PRO: 9, T_CARB: 10, T_FAT: 11, GYM: 12
+});
+const T = Object.freeze({          // Tracker
+  DATE: 0, MEAL: 1, DETAILS: 2, CAL: 3, P: 4, C: 5, F: 6, WEIGHT: 7, UNUSED: 8, BURN: 9, GYM: 10   // UNUSED, BURN: blank
+});
+const TG = Object.freeze({         // Targets
+  NAME: 0, LOWER: 1, UPPER: 2, SEVERITY: 3, EFFECTIVE_FROM: 4
+});
+const R = Object.freeze({          // Form responses 1
+  TIMESTAMP: 0, PAYLOAD: 1
+});
+/** 0-based array index → 1-based Sheets column. */
+function sCol(i) { return i + 1; }
+
 // ----- TDEE / dynamic-target compute -----
-// 42 not 28, and never 20: edge weigh-ins dominate a short least-squares fit (in a 20-day fit the 4
-// edge readings carry ~58% of the slope, the 4 middle ones ~3%), so one water-skewed reading at the
-// window edge swings TDEE by hundreds of kcal. 28 fixed the 2 Aug 2026 overshoot but was still short
-// enough to be captured whole by a single glycogen swing — see the 2-22 Aug 2026 event in
-// ASSUMPTIONS.md §28, where a 28-day window straddled one carb-driven water cycle and read
-// -0.62 lb/wk against a true ~0.85, cutting the target 605 kcal in 18 days. 42/49/56-day windows all
-// read -0.84 to -0.88 on the same data; 42 is the shortest that is not swallowed by one such cycle.
-const TDEE_WINDOW_DAYS = 42;   // trailing window (completed days) for TDEE + typical-burn baseline
+// The window has two lower bounds and must clear both. Short fits are dominated by their edge
+// weigh-ins, so one water-skewed reading at the boundary moves TDEE by hundreds of kcal. And a
+// carb-driven glycogen swing runs a few weeks; a window it fits inside averages the water-loading
+// and water-dumping halves together and reports a slope that is neither. 42 is the shortest length
+// clearing both. Do not shorten it. §8, §28.
+const TDEE_WINDOW_DAYS = 42;   // trailing window (completed days) for the TDEE regression
 const KCAL_PER_LB = 3500;
 const MIN_WEIGH_INS = 8, MIN_INTAKE_DAYS = 10, MIN_SPAN_DAYS = 14;   // data bar before targets compute
 const INTAKE_COMPLETE_FRAC = 0.65;   // a day below this fraction of the window median = unfinished log
 
 // ----- Target slew limit -----
-// Cap on how fast the daily anchor may move, in kcal per WEEK. Real TDEE cannot move quickly: 10 lb
-// of loss is worth ~100-150 kcal and takes months. So a target that swings faster than this is
-// reporting measurement error, not metabolism, and the *speed* of a change is enough to tell the two
-// apart. Slow, real drift passes the gate; scale noise does not.
+// Cap on how fast the anchor may move, in kcal per WEEK. Real expenditure changes slowly — ten pounds
+// of loss is worth ~100-150 kcal over months — so anything moving faster is measurement error, and
+// its speed alone identifies it. Real drift passes the gate; scale noise does not.
 //
-// Sized against the 2-22 Aug 2026 event: the anchor went 1687 -> 2312 -> 1707 in 18 days chasing a
-// glycogen artifact. At 50/wk it would have crept 1687 -> ~1837, landing on the measured truth —
-// and, because it never would have prescribed 316 g of carbs, the water spike that corrupted the
-// TDEE window would not have happened at all. This gate prevents the cause, not just the symptom.
+// It also bounds how large a carb change the controller can prescribe, which keeps it from driving
+// the glycogen swings that corrupt its own TDEE window.
 //
-// Applied to the anchor BEFORE the floor, so the floor is always honoured exactly. Measured from the
-// most recent day that actually has a target, so a gap in the sheet does not bank up slack beyond
-// the elapsed time. Set to 0 to disable. ASSUMPTIONS.md §29.
+// Applied BEFORE the floor, so the floor stays exact. Set to 0 to disable. §29.
 const TARGET_SLEW_KCAL_PER_WEEK = 50;
 
-// ----- Training-burn flex: OFF -----
-// false = the workout delta is switched off end to end. Burn payloads are not ingested, existing
-// burn values are not read, and Summary col H is written blank — so clearing it survives a rebuild,
-// which clearing the cells by hand does not (the values live in Form responses -> Tracker -> Summary).
-// Also selects the daily targets-trigger time via createTargetsTrigger (off → ~03:00, on → ~14:30).
-//
-// Off because the historical numbers are watch "active calories" for resistance work, averaging 465
-// per session — roughly 2x a realistic net cost. Mixed with hand-entered figures they produced a
-// ~450 kcal/day swing in the daily target off a baseline that was itself wrong. The training is
-// already inside the measured TDEE (§5), so nothing is lost by ignoring it.
-//
-// Setting this back to true re-enables everything, but Tracker will be missing the burn rows: run
-// rebuildTrackerFromResponses to restore them from the response log, then rebuildAllSummary, then
-// createTargetsTrigger once so the daily schedule moves to ~14:30. ASSUMPTIONS.md §24.
-const BURN_DELTA_ENABLED = false;
+// No training-burn flex: a `burn` payload field is ignored like any other unknown key. Resistance
+// work is already inside an intake-anchored TDEE, so crediting calories for it double-counts.
+// §24, §31.
 
 // ----- Strength-session logging -----
-// A gym day is a CHECKBOX, not a calorie figure: {"gym":"A"} or {"gym":"B"} through the same Form.
-// Deliberately NOT wired into the daily target — that is the burn-flex mistake (§24) all over again.
-// The training is already inside the measured TDEE, and paying yourself calories for a session
-// re-creates the "I earned this" loop the constant-deficit design exists to avoid. Sessions are
-// counted for pacing only; they never move a macro.
+// A gym day is a CHECKBOX, not a calorie figure: {"gym":"A"} or {"gym":"B"}. It never moves a macro —
+// the session is already inside the measured TDEE, and crediting calories for it re-creates the
+// "I earned this" loop the constant-deficit design exists to remove. Counted for pacing only.
 //
-// Two labels because the program alternates A/B full-body sessions. The label is what lets the
-// widget say which one is up next, so the rotation is driven by a pointer rather than by weekday —
-// you can never "miss leg day", you just do the next one.
+// The two labels are the alternating A/B full-body sessions. They drive the widget's "next session"
+// pointer, so the rotation follows the sequence rather than the weekday. §26.
 const GYM_LABELS = ["A", "B"];
-// Several submissions for one date collapse to ONE session (last label wins). No banking ahead:
-// two sessions in a day is still a 1, matching how the widget's rolling-7 count reads.
+// Several submissions for one date collapse to ONE session, last label winning, so a correction just
+// works. Two sessions in a day is still 1 — no banking ahead.
 
-// Basal/BMR is never processed at all — not gated, removed. It was only ever written to a column
-// nothing read, and an intake-anchored TDEE cannot need it (§4). Payload items carrying only
-// `basal` are dropped by payloadItemToRow.
+// Basal/BMR is not collected. An intake-anchored TDEE measures total expenditure by construction, so
+// a separate BMR figure would double-count. Items carrying only `basal` are dropped. §4.
 
 function processMacroPayload(e) {
   if (!e || !e.values) {
@@ -89,12 +86,12 @@ function processMacroPayload(e) {
   const tracker = ss.getSheetByName(TRACKER_TAB);
 
   try {
-    let data = JSON.parse(e.values[1]);
+    let data = JSON.parse(e.values[R.PAYLOAD]);
     if (!Array.isArray(data)) data = [data];
 
     const today = todayStr();                  // spreadsheet TZ; used when an item carries no "date"
     const newRows = [];                        // batched: one write instead of one per item
-    const want = { macros: {}, weight: {}, burn: {}, gym: {} };
+    const want = { macros: {}, weight: {}, gym: {} };
 
     data.forEach(item => {
       // OPTIONAL back-date: item.date "DD/MM/YYYY" (post-midnight or forgotten entries)
@@ -102,7 +99,6 @@ function processMacroPayload(e) {
       if (!mapped) return;                     // nothing usable in this item
       newRows.push(mapped.row);
       if (mapped.kind === "weight")    want.weight[mapped.date] = true;
-      else if (mapped.kind === "burn") want.burn[mapped.date]   = true;
       else if (mapped.kind === "gym")  want.gym[mapped.date]    = true;
       else                             want.macros[mapped.date] = true;
       // A meal row can also carry a session (see payloadItemToRow) — refresh both groups.
@@ -114,16 +110,16 @@ function processMacroPayload(e) {
     }
 
     // Every touched date recomputed from ONE Tracker read and ONE Summary read.
-    const ctx = refreshSummary(ss, want);
-
-    // A burn entry changes that day's workout delta, so re-derive its targets now rather than waiting
-    // for the afternoon targets trigger — training logged after that run would otherwise never reach
-    // the target it was meant to adjust. ctx.sum already reflects the burn just written.
-    // (No-op while BURN_DELTA_ENABLED is false: isBurnEntry drops burn items, so want.burn stays empty.)
-    Object.keys(want.burn).forEach(d => updateDailyTargets(d, ctx));
+    refreshSummary(ss, want);
 
   } catch (err) {
-    Logger.log("Error processing payload: " + err);
+    // LOG, THEN RE-THROW — never swallow. Re-throwing marks the trigger execution failed, which is
+    // what makes Apps Script send its failure notification; a caught-and-logged error is invisible
+    // until a hole turns up in the data weeks later. Nothing is lost by throwing: the raw payload is
+    // already in `Form responses 1`, so rebuildTrackerFromResponses() recovers the entry once the
+    // cause is fixed. §32.
+    Logger.log("Error processing payload: " + err + (err && err.stack ? "\n" + err.stack : ""));
+    throw err;
   }
 }
 
@@ -145,18 +141,17 @@ const TRACKER_WIDTH = 11;
  * Turns one Form payload item into a Tracker row: {kind, date, row}, or **null** when the item
  * carries nothing usable.
  *
- * The null case is real. 20 historical payloads are `{basal, date}` from the failed Health Connect
- * backfill; basal is dead (§4), so they hold no information — yet the old code fell through to the
- * meal branch and wrote 20 blank rows into Tracker, all dated 12 Jul. They never reached Summary
- * (no macros, no weight, no burn) but they polluted the log. Now skipped.
+ * The null case is load-bearing, not defensive: the response log contains `{basal, date}` items that
+ * carry no information now that basal is dead (§4). Returning null keeps them out of Tracker instead
+ * of writing blank rows.
  *
- * Single source of truth, shared by processMacroPayload and rebuildTrackerFromResponses — which
- * previously each carried their own copy, already differing in padding width.
+ * Single source of truth — both processMacroPayload and rebuildTrackerFromResponses go through here,
+ * so the live path and the rebuild path cannot disagree about what a payload means.
  */
 function payloadItemToRow(item, fallbackDate) {
-  // A date that was SUPPLIED but could not be parsed is a silent-misdating hazard: it falls back to
-  // the submission date, so a back-dated entry quietly lands on today and corrupts both the intake
-  // series and the weigh-in series for two days at once. Say so in the log rather than swallowing it.
+  // A date that was SUPPLIED but unreadable falls back to the submission date, which misdates the
+  // entry rather than rejecting it. Log it — an absent date is legitimate, an unreadable one is not.
+  // §30.
   const supplied = item && item.date;
   const parsed = parseInputDate(supplied);
   if (supplied !== undefined && supplied !== null && supplied !== "" && parsed === null) {
@@ -164,10 +159,11 @@ function payloadItemToRow(item, fallbackDate) {
                '. Accepted formats: "DD/MM/YYYY" or "YYYY-MM-DD".');
   }
   const d = parsed || fallbackDate;
-  const pad = v => { const r = []; for (let i = 0; i < TRACKER_WIDTH; i++) r.push(v[i] === undefined ? "" : v[i]); return r; };
 
-  if (isWeightEntry(item)) return { kind: "weight", date: d, row: pad([d, "Weigh-in", "", "", "", "", "", num(item.weight)]) };
-  if (isBurnEntry(item))   return { kind: "burn",   date: d, row: pad([d, "Burn", "", "", "", "", "", "", "", num(item.burn)]) };
+  if (isWeightEntry(item)) {
+    return { kind: "weight", date: d,
+             row: trackerRow({ date: d, meal: "Weigh-in", weight: num(item.weight) }) };
+  }
 
   const g = normGym(item);
   const hasMacros = num(item && item.cal) !== null || num(item && item.p) !== null ||
@@ -176,7 +172,7 @@ function payloadItemToRow(item, fallbackDate) {
   // A lone {"gym":"A"} is its own row.
   if (!hasMacros) {
     return g ? { kind: "gym", date: d, gym: g,
-                 row: pad([d, "Gym " + g, "", "", "", "", "", "", "", "", g]) } : null;
+                 row: trackerRow({ date: d, meal: "Gym " + g, gym: g }) } : null;
   }
 
   // Macros AND a gym flag in the SAME object ({"cal":640,...,"gym":"B"}) is a meal row that also
@@ -184,9 +180,30 @@ function payloadItemToRow(item, fallbackDate) {
   // would have silently swallowed the meal, and checking macros first would have silently swallowed
   // the session; either way one of them vanishes with no error. `gym` is reported separately from
   // `kind` so the caller refreshes BOTH column groups.
-  return { kind: "meal", date: d, gym: g, row: pad([d, item.meal || "", item.details || "",
-           numOrBlank(item.cal), numOrBlank(item.p), numOrBlank(item.c), numOrBlank(item.f),
-           "", "", "", g || ""]) };
+  return { kind: "meal", date: d, gym: g,
+           row: trackerRow({ date: d, meal: item.meal || "", details: item.details || "",
+                             cal: numOrBlank(item.cal), p: numOrBlank(item.p),
+                             c: numOrBlank(item.c),     f: numOrBlank(item.f), gym: g || "" }) };
+}
+
+/**
+ * A full-width Tracker row, fields placed BY NAME so a miscount cannot shift later columns into the
+ * wrong position. Unspecified fields are blank.
+ */
+function trackerRow(f) {
+  const r = [];
+  for (let i = 0; i < TRACKER_WIDTH; i++) r.push("");
+  r[T.DATE]    = f.date === undefined ? "" : f.date;
+  r[T.MEAL]    = f.meal === undefined ? "" : f.meal;
+  r[T.DETAILS] = f.details === undefined ? "" : f.details;
+  r[T.CAL]     = f.cal === undefined ? "" : f.cal;
+  r[T.P]       = f.p === undefined ? "" : f.p;
+  r[T.C]       = f.c === undefined ? "" : f.c;
+  r[T.F]       = f.f === undefined ? "" : f.f;
+  r[T.WEIGHT]  = f.weight === undefined ? "" : f.weight;
+  r[T.BURN]    = f.burn === undefined ? "" : f.burn;
+  r[T.GYM]     = f.gym === undefined ? "" : f.gym;
+  return r;
 }
 
 /**
@@ -209,10 +226,6 @@ function normGym(item) {
 /** A payload item is a weigh-in if it carries a numeric `weight`. */
 function isWeightEntry(item) { return !!item && num(item.weight) !== null; }
 
-/** A payload item is a burn entry if it carries a numeric `burn` — the day's training calories,
- *  entered by hand through the Form. (Formerly fed by the watch; that path was removed.) */
-function isBurnEntry(item) { return BURN_DELTA_ENABLED && !!item && num(item.burn) !== null; }
-
 /** Number, or "" if absent/blank/non-numeric — for writing back into a cell. */
 function numOrBlank(v) { const n = num(v); return n === null ? "" : n; }
 
@@ -222,15 +235,12 @@ function parseInputDate(s) {
   if (typeof s !== "string") return null;
   const t = s.trim();
 
-  // Two accepted shapes. DD/MM/YYYY is the documented hand-entry form. YYYY-MM-DD is accepted too
-  // because it is the format this function *emits* and the format Summary stores — a parser that
-  // rejects its own output is a trap, and the failure is silent: an unparseable date falls back to
-  // the submission date, so the entry lands on today instead of being refused. Cost one real
-  // misdated dinner on 15 Aug 2026.
+  // Two shapes, both unambiguous: DD/MM/YYYY (hand entry) and YYYY-MM-DD (what this function emits
+  // and what Summary stores — a parser must accept its own output).
   //
-  // No other shape. MM/DD/YYYY is deliberately NOT supported and must never be added: it is
-  // indistinguishable from DD/MM/YYYY for the first twelve days of any month, so accepting both
-  // would silently misdate ~40% of entries with no way to tell which reading was meant.
+  // MM/DD/YYYY is NOT supported and must never be added: it is indistinguishable from DD/MM/YYYY for
+  // the first twelve days of any month, so accepting both would misdate ~40% of entries with no way
+  // to recover the intended reading. §30.
   let d, m, y;
   let mt = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);           // DD/MM/YYYY
   if (mt) { d = +mt[1]; m = +mt[2]; y = +mt[3]; }
@@ -247,39 +257,34 @@ function parseInputDate(s) {
 }
 
 /**
- * ONE pass over Tracker, aggregating every date at once. Replaces four separate scans that each
- * re-read the whole sheet and re-implemented the same arithmetic — which is how the last-value-wins
- * burn bug survived in rebuildAllSummary after being fixed in updateBurnSummary.
+ * ONE pass over Tracker, aggregating every date at once. Every consumer reads from this, so the
+ * per-column arithmetic exists in exactly one place and the write paths cannot drift apart.
  *
- * Returns { "yyyy-MM-dd": {cal, p, c, f, wSum, wN, burn, burnSeen, gym} }.
+ * Returns { "yyyy-MM-dd": {cal, p, c, f, wSum, wN, gym} }.
  */
 function aggregateTracker(rows) {
   const agg = {};
   for (let i = 1; i < rows.length; i++) {            // skip header row
-    const d = normDate(rows[i][0]);
+    const d = normDate(rows[i][T.DATE]);
     if (!d) continue;
     let a = agg[d];
     if (!a) a = agg[d] = emptyTrackerDay();
-    a.cal += num(rows[i][3]) || 0;
-    a.p   += num(rows[i][4]) || 0;
-    a.c   += num(rows[i][5]) || 0;
-    a.f   += num(rows[i][6]) || 0;
-    const w = num(rows[i][7]);                       // H weight
+    a.cal += num(rows[i][T.CAL]) || 0;
+    a.p   += num(rows[i][T.P]) || 0;
+    a.c   += num(rows[i][T.C]) || 0;
+    a.f   += num(rows[i][T.F]) || 0;
+    const w = num(rows[i][T.WEIGHT]);
     if (w !== null && w > 0) { a.wSum += w; a.wN++; }
-    if (BURN_DELTA_ENABLED) {
-      const b = num(rows[i][9]);                     // J burn — every session for the date adds up
-      if (b !== null) { a.burn += b; a.burnSeen = true; }
-    }
     // K gym — unlike burn, sessions do NOT accumulate. Two rows for one date is still one gym day;
     // the last label written wins, so a correction ({"gym":"B"} after a mis-typed "A") just works.
-    const gv = normGym({ gym: rows[i][10] });
+    const gv = normGym({ gym: rows[i][T.GYM] });
     if (gv) a.gym = gv;
   }
   return agg;
 }
 
 function emptyTrackerDay() {
-  return { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, burn: 0, burnSeen: false, gym: "" };
+  return { cal: 0, p: 0, c: 0, f: 0, wSum: 0, wN: 0, gym: "" };
 }
 
 /** The aggregate for one date, or a zeroed one if Tracker has no rows for it. */
@@ -291,9 +296,25 @@ function trackerDay(agg, dateStr) {
 function dayWeight(a) { return a.wN > 0 ? Math.round((a.wSum / a.wN) * 10) / 10 : ""; }
 
 /**
+ * The Summary column groups. Each owns a contiguous run of cells starting at `col`, renders them
+ * from one day's Tracker aggregate, and declares whether it may CREATE a Summary row that does not
+ * exist yet. Adding a column group is one entry here.
+ *
+ * Key order is the write order and is load-bearing: `macros` runs first because it is the only group
+ * that unconditionally creates the row, so the others find it already present.
+ */
+const SUMMARY_GROUPS = Object.freeze({
+  macros: { col: S.DATE,   values: (a, d) => [d, a.cal, a.p, a.c, a.f], creates: function ()  { return true; } },
+  weight: { col: S.WEIGHT, values: a => [dayWeight(a)],                 creates: function (a) { return a.wN > 0; } },
+  // `creates` is TRUE for a session on a day with no food and no weigh-in — otherwise the row never
+  // exists and the widget's rolling-7 count can never see it.
+  gym:    { col: S.GYM,    values: a => [a.gym || ""],                  creates: function (a) { return !!a.gym; } }
+});
+
+/**
  * Recomputes the requested Summary cells for each date, from ONE Tracker read and ONE Summary read.
- * `want` is {macros:{date:true}, weight:{...}, burn:{...}} — only the listed column groups are
- * written, so a meal submission never disturbs weight, burn or the per-day targets.
+ * `want` is {macros:{date:true}, weight:{...}, ...} keyed by SUMMARY_GROUPS — only the listed groups
+ * are written, so a meal submission never disturbs weight, burn or the per-day targets.
  *
  * Returns {summary, sum}. Because upsertSummary keeps `sum` in step with what it writes, the caller
  * can pass that straight to updateDailyTargets and it cannot see stale data.
@@ -304,49 +325,26 @@ function refreshSummary(ss, want) {
   const agg = aggregateTracker(tracker.getDataRange().getValues());
   const sum = summary.getDataRange().getValues();
 
-  Object.keys(want.macros || {}).forEach(d => {
-    const a = trackerDay(agg, d);
-    upsertSummary(summary, sum, d, 1, [d, a.cal, a.p, a.c, a.f], true);
-  });
-  Object.keys(want.weight || {}).forEach(d => {
-    const a = trackerDay(agg, d);
-    upsertSummary(summary, sum, d, 6, [dayWeight(a)], a.wN > 0);
-  });
-  Object.keys(want.burn || {}).forEach(d => {
-    const a = trackerDay(agg, d);
-    upsertSummary(summary, sum, d, 8, [a.burnSeen ? a.burn : ""], a.burnSeen);
-  });
-  // Col M. appendIfMissing is TRUE: a session logged on a day with no food and no weigh-in still
-  // has to create its Summary row, or the widget's rolling-7 count would never see it.
-  Object.keys(want.gym || {}).forEach(d => {
-    const a = trackerDay(agg, d);
-    upsertSummary(summary, sum, d, 13, [a.gym || ""], !!a.gym);
+  Object.keys(SUMMARY_GROUPS).forEach(name => {
+    const spec = SUMMARY_GROUPS[name];
+    Object.keys(want[name] || {}).forEach(d => {
+      const a = trackerDay(agg, d);
+      upsertSummary(summary, sum, d, sCol(spec.col), spec.values(a, d), spec.creates(a));
+    });
   });
   return { summary: summary, sum: sum };
 }
 
-/** Recomputes the macro cells (A-E) for one date. Weight, burn and targets untouched. */
-function updateDailySummary(dateStr) {
-  const m = {}; m[dateStr] = true;
-  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { macros: m });
-}
-
-/** Recomputes the weight cell (F) for one date, averaging that date's weigh-ins to 0.1 lb. */
-function updateWeightSummary(dateStr) {
-  const m = {}; m[dateStr] = true;
-  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { weight: m });
-}
-
-/** Recomputes the burn cell (H) for one date. Multiple sessions on a date are ADDED. §12 */
-function updateBurnSummary(dateStr) {
-  const m = {}; m[dateStr] = true;
-  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { burn: m });
-}
-
-/** Recomputes the gym cell (M) for one date. Multiple entries collapse to ONE session. */
-function updateGymSummary(dateStr) {
-  const m = {}; m[dateStr] = true;
-  refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), { gym: m });
+/**
+ * Recomputes the named column groups for ONE date — the whole set when `groups` is omitted.
+ *
+ * Pass every group you need in a single call. refreshSummary reads BOTH sheets in full each time it
+ * runs, so calling it once per group multiplies that cost for no benefit.
+ */
+function refreshDate(dateStr, groups) {
+  const want = {};
+  (groups || Object.keys(SUMMARY_GROUPS)).forEach(g => { want[g] = {}; want[g][dateStr] = true; });
+  return refreshSummary(SpreadsheetApp.getActiveSpreadsheet(), want);
 }
 
 /**
@@ -387,7 +385,7 @@ function normDate(v) {
  */
 function upsertSummary(summary, rows, dateStr, col, values, appendIfMissing) {
   for (let i = 1; i < rows.length; i++) {
-    if (normDate(rows[i][0]) === dateStr) {
+    if (normDate(rows[i][S.DATE]) === dateStr) {
       summary.getRange(i + 1, col, 1, values.length).setValues([values]);
       for (let j = 0; j < values.length; j++) rows[i][col - 1 + j] = values[j];
       return true;
@@ -396,7 +394,7 @@ function upsertSummary(summary, rows, dateStr, col, values, appendIfMissing) {
   if (!appendIfMissing) return false;
   const row = [];
   for (let j = 0; j < SUMMARY_HEADER.length; j++) row.push("");
-  row[0] = dateStr;
+  row[S.DATE] = dateStr;
   for (let j = 0; j < values.length; j++) row[col - 1 + j] = values[j];
   summary.appendRow(row);
   rows.push(row);
@@ -413,11 +411,7 @@ function sheetWithHeader(ss, name, header) {
 
 /** Run manually to recompute TODAY's macro + weight + burn + gym cells (no form submit). */
 function rebuildToday() {
-  const today = todayStr();
-  updateDailySummary(today);
-  updateWeightSummary(today);
-  updateBurnSummary(today);
-  updateGymSummary(today);
+  refreshDate(todayStr());
 }
 
 /** REPAIR TOOL: wipes Summary and rebuilds every day's macros, weight AND burn from Tracker.
@@ -434,8 +428,8 @@ function rebuildAllSummary() {
   const g = x => (x === undefined ? "" : x);
   const tByDate = {};
   for (let i = 1; i < prior.length; i++) {
-    const d = normDate(prior[i][0]);
-    if (d) tByDate[d] = [g(prior[i][8]), g(prior[i][9]), g(prior[i][10]), g(prior[i][11])];
+    const d = normDate(prior[i][S.DATE]);
+    if (d) tByDate[d] = [g(prior[i][S.T_CAL]), g(prior[i][S.T_PRO]), g(prior[i][S.T_CARB]), g(prior[i][S.T_FAT])];
   }
 
   summary.clearContents();
@@ -447,7 +441,7 @@ function rebuildAllSummary() {
       const a = agg[d], t = tByDate[d] || ["", "", "", ""];
       return [d, a.cal, a.p, a.c, a.f, dayWeight(a),
               "",                              // col G intentionally blank (see SUMMARY_HEADER note)
-              a.burnSeen ? a.burn : "",
+              "",                              // col H — reserved blank slot (see header note)
               t[0], t[1], t[2], t[3],
               a.gym || ""];                    // col M — rebuilt from Tracker, not preserved
     });
@@ -465,11 +459,11 @@ function rebuildTrackerFromResponses() {
 
   const resRows = responses.getDataRange().getValues();   // [timestamp, payload, ...]
   const out = [];
-  const tally = { meal: 0, weight: 0, burn: 0, gym: 0 };
+  const tally = { meal: 0, weight: 0, gym: 0 };
   let unparseable = 0, empty = 0, mealGym = 0;
 
   for (let i = 1; i < resRows.length; i++) {              // skip header
-    const payload = resRows[i][1];
+    const payload = resRows[i][R.PAYLOAD];
     if (!payload) continue;
     let data;
     try {
@@ -480,7 +474,7 @@ function rebuildTrackerFromResponses() {
       continue;
     }
     if (!Array.isArray(data)) data = [data];
-    const fallbackDate = normDate(resRows[i][0]) || todayStr();
+    const fallbackDate = normDate(resRows[i][R.TIMESTAMP]) || todayStr();
     data.forEach(item => {
       const mapped = payloadItemToRow(item, fallbackDate);
       if (!mapped) { empty++; return; }       // e.g. the legacy {basal,date} items — no information
@@ -498,7 +492,7 @@ function rebuildTrackerFromResponses() {
   rebuildAllSummary();
 
   Logger.log("Rebuilt from " + (resRows.length - 1) + " responses: " + tally.meal + " meals, " +
-             tally.weight + " weigh-ins, " + tally.burn + " burn, " +
+             tally.weight + " weigh-ins, " +
              (tally.gym + mealGym) + " gym sessions (" + mealGym + " on meal rows), " + empty +
              " items with nothing usable, " + unparseable + " unparseable payloads.");
 }
@@ -514,10 +508,10 @@ function updateTargetsToday() {
  * One-shot entry point: recompute TODAY's target IGNORING the slew limit, then let the limit govern
  * from tomorrow on.
  *
- * Run this ONCE after a deliberate, evidence-backed change to the estimator (a window length, a
- * deficit, a repaired history) — otherwise the slew gate makes the correction crawl at 50 kcal/wk
- * from a value you already know to be wrong. Do NOT run it to "unstick" a target you merely dislike:
- * the whole point of the gate is that a number you want to override in a hurry is usually noise.
+ * Run ONCE after a deliberate, evidence-backed change to the estimator — a window length, a deficit,
+ * a repaired history — so the correction lands instead of crawling from a value already known to be
+ * wrong. Not for unsticking a target you merely dislike: a number you want to override in a hurry is
+ * usually the noise the gate exists to block. §29.
  */
 function reseedTargetsToday() {
   updateDailyTargets(todayStr(), null, { bypassSlew: true });
@@ -551,15 +545,9 @@ function updateDailyTargets(dateStr, ctx, opts) {
     return;
   }
 
-  // Workout flex, or a flat 0 when BURN_DELTA_ENABLED is false.
-  const delta = BURN_DELTA_ENABLED
-    ? readBurn(rows, dateStr) - typicalBurn(rows, dateStr)   // both all-days figures — like for like
-    : 0;
-
-  // Slew-limit the anchor, THEN floor it. Order matters: the floor is an anti-starve hard stop and
-  // must never be softened by the gate, while the gate must never be able to hold the anchor below
-  // the floor on the way down.
-  const rawAnchor = tdee + delta - cfg.deficit;
+  // Slew first, floor second. The floor is an anti-starve hard stop: the gate must not soften it,
+  // and must not be able to hold the anchor below it on the way down.
+  const rawAnchor = tdee - cfg.deficit;
   const slewed = (opts && opts.bypassSlew) ? rawAnchor : slewAnchor(rows, dateStr, rawAnchor);
   const anchor = Math.max(slewed, cfg.floor);
   if (slewed !== rawAnchor) {
@@ -570,12 +558,11 @@ function updateDailyTargets(dateStr, ctx, opts) {
   const tCarb = Math.max(0, (anchor - 4 * cfg.pCenter - 9 * cfg.fCenter) / 4);
 
   // ONE DECIMAL on the centres — do NOT Math.round() to whole grams. The widget rebuilds each band
-  // as [centre ± halfWidth], and a .5 centre rounded up shifts the whole band up 0.5 g.
-  // ASSUMPTIONS.md §14.
+  // as [centre ± halfWidth], so a .5 centre rounded up shifts the whole band up 0.5 g. §14.
   const r1 = x => Math.round(x * 10) / 10;
   const vals = [Math.round(anchor), r1(cfg.pCenter), r1(tCarb), r1(cfg.fCenter)];
 
-  upsertSummary(summary, rows, dateStr, 9, vals, true);   // cols I-L
+  upsertSummary(summary, rows, dateStr, sCol(S.T_CAL), vals, true);   // cols I-L
 }
 
 /**
@@ -583,14 +570,14 @@ function updateDailyTargets(dateStr, ctx, opts) {
  * anchor, pro-rated by the number of days actually elapsed since it.
  *
  * Returns rawAnchor unchanged when the gate is disabled or there is no earlier anchor to measure
- * from — a first run must be free to land wherever the data says.
+ * from: a first run must be free to land wherever the data says.
  */
 function slewAnchor(src, dateStr, rawAnchor) {
   if (!TARGET_SLEW_KCAL_PER_WEEK) return rawAnchor;
   const prev = previousAnchor(src, dateStr);
   if (!prev) return rawAnchor;
-  // Pro-rate by elapsed days so a gap in the sheet cannot bank up unlimited slack, and never allow
-  // less than a single day's worth (a same-day re-run must not be frozen at zero movement).
+  // Pro-rated by elapsed days so a gap in the sheet cannot bank up unlimited slack; never less than
+  // one day's worth, so a same-day re-run is not frozen at zero movement.
   const gap = Math.max(1, daysBetween(prev.date, dateStr));
   const allow = TARGET_SLEW_KCAL_PER_WEEK * gap / 7;
   return Math.max(prev.anchor - allow, Math.min(prev.anchor + allow, rawAnchor));
@@ -600,18 +587,17 @@ function slewAnchor(src, dateStr, rawAnchor) {
  * Most recent Summary row STRICTLY BEFORE dateStr that carries a numeric t_cal (col I), as
  * { date, anchor }, or null if there is none.
  *
- * Strictly-before matters: updateDailyTargets is re-entrant (a late submission re-runs the day), and
- * measuring against the row being rewritten would clamp each run to its own previous output and
- * freeze the target permanently.
+ * Strictly-before is required: updateDailyTargets is re-entrant, and measuring against the row being
+ * rewritten would clamp each run to its own previous output and freeze the target permanently.
  */
 function previousAnchor(src, dateStr) {
   const rows = summaryValues(src);
   if (!rows) return null;
   let best = null;
   for (let i = 1; i < rows.length; i++) {
-    const d = normDate(rows[i][0]);
+    const d = normDate(rows[i][S.DATE]);
     if (!d || d >= dateStr) continue;
-    const v = num(rows[i][8]);   // col I = t_cal
+    const v = num(rows[i][S.T_CAL]);
     if (v === null) continue;
     if (!best || d > best.date) best = { date: d, anchor: v };
   }
@@ -622,10 +608,9 @@ function previousAnchor(src, dateStr) {
  * TDEE over the trailing window ending YESTERDAY (completed days only):
  *   TDEE = avg intake − weight_slope(lb/day) × 3500,  slope = least-squares over the weigh-ins.
  *
- * UNWEIGHTED, deliberately: an exponentially-weighted fit lost to plain least squares at every
- * half-life tested, because up-weighting recent points re-creates the endpoint leverage the longer
- * window exists to remove. Intake days below INTAKE_COMPLETE_FRAC of the window MEDIAN are dropped
- * as incomplete logs. Returns null if below the data bar. ASSUMPTIONS.md §8, §13.
+ * UNWEIGHTED — do not add exponential weighting. Up-weighting recent points re-creates the endpoint
+ * leverage the long window exists to remove. Intake days below INTAKE_COMPLETE_FRAC of the window
+ * MEDIAN are dropped as incomplete logs. Returns null if below the data bar. §8, §13.
  */
 function computeTdee(src, dateStr) {
   const slice = windowRows(src, dateStr);
@@ -635,9 +620,9 @@ function computeTdee(src, dateStr) {
   const weights = [];   // [dayIndex, weight]
   const rawIntakes = [];
   slice.rows.forEach(r => {
-    const w = num(r.row[5]);      // F weight
+    const w = num(r.row[S.WEIGHT]);
     if (w !== null && w > 0) weights.push([dayNumber(r.date) - startNum, w]);
-    const cal = num(r.row[1]);    // B cal
+    const cal = num(r.row[S.CAL]);
     if (cal !== null && cal > 0) rawIntakes.push(cal);
   });
 
@@ -676,26 +661,6 @@ function completeIntakes(cals) {
 }
 
 /**
- * Average training burn (col H) over the trailing window, counting EVERY calendar day in the
- * window — a blank cell is a rest day worth 0, not a day to exclude.
- *
- * Averaging only the LOGGED days (the old behaviour) made a rest day score better than a light
- * session. All-days averaging makes avg(delta) = 0 over the window by construction, which is what
- * stops the workout flex quietly eating into the deficit. ASSUMPTIONS.md §12.
- */
-function typicalBurn(src, dateStr) {
-  if (!BURN_DELTA_ENABLED) return 0;
-  const slice = windowRows(src, dateStr);
-  if (!slice || !slice.rows.length) return 0;
-  let sum = 0;
-  slice.rows.forEach(r => {
-    const b = num(r.row[7]);         // H burn — blank counts as a real 0 (rest day)
-    sum += (b === null ? 0 : b);
-  });
-  return sum / slice.rows.length;    // every day in the window counts, not just logged ones
-}
-
-/**
  * Summary's values, from either a Spreadsheet (reads it) or an already-read values array (returns
  * it as-is). Lets one caller read Summary ONCE and hand the same array to every consumer, without
  * changing any public signature. Returns null if Summary is missing.
@@ -708,8 +673,7 @@ function summaryValues(src) {
 
 /**
  * Summary rows inside the trailing TDEE window (ends YESTERDAY — completed days only), as
- * [{date, row}]. Shared by computeTdee and typicalBurn so the two can never disagree about which
- * days are in scope. Returns null if Summary is missing.
+ * [{date, row}]. Returns null if Summary is missing.
  */
 function windowRows(src, dateStr) {
   const rows = summaryValues(src);
@@ -718,29 +682,11 @@ function windowRows(src, dateStr) {
   const start = addDays(end, -(TDEE_WINDOW_DAYS - 1));
   const out = [];
   for (let i = 1; i < rows.length; i++) {
-    const d = normDate(rows[i][0]);
+    const d = normDate(rows[i][S.DATE]);
     if (!d || d < start || d > end) continue;
     out.push({ date: d, row: rows[i] });
   }
   return { start: start, end: end, rows: out };
-}
-
-/**
- * The day's training burn (col H), 0 when blank — must match typicalBurn's all-days baseline or the
- * delta compares different things. A same-day entry logged later re-triggers updateDailyTargets from
- * processMacroPayload. ASSUMPTIONS.md §12.
- */
-function readBurn(src, dateStr) {
-  if (!BURN_DELTA_ENABLED) return 0;
-  const rows = summaryValues(src);
-  if (!rows) return 0;
-  for (let i = 1; i < rows.length; i++) {
-    if (normDate(rows[i][0]) === dateStr) {
-      const b = num(rows[i][7]);
-      return b === null ? 0 : b;
-    }
-  }
-  return 0;
 }
 
 /**
@@ -755,12 +701,12 @@ function readTargetConfig(ss, dateStr) {
   const rows = sh.getDataRange().getValues();   // A name, B lower, C upper, D severity, E EffectiveFrom
   const pick = {};
   for (let i = 1; i < rows.length; i++) {
-    const key = classifyTarget(rows[i][0]);
+    const key = classifyTarget(rows[i][TG.NAME]);
     if (!key) continue;
-    const eff = normDate(rows[i][4]) || "0000-00-00";   // blank = always applies
+    const eff = normDate(rows[i][TG.EFFECTIVE_FROM]) || "0000-00-00";   // blank = always applies
     if (eff > dateStr) continue;                         // future row, not yet in effect
     if (!pick[key] || eff >= pick[key].eff) {
-      pick[key] = { lower: Number(rows[i][1]), upper: Number(rows[i][2]), eff: eff };
+      pick[key] = { lower: Number(rows[i][TG.LOWER]), upper: Number(rows[i][TG.UPPER]), eff: eff };
     }
   }
   const p = pick.protein, f = pick.fat, fl = pick.floor, de = pick.deficit;
@@ -821,15 +767,14 @@ function installDailyTrigger(handler, hour, minute) {
 }
 
 /**
- * Run ONCE from the editor (and again after flipping BURN_DELTA_ENABLED): installs the daily
+ * Run ONCE from the editor: installs the daily
  * updateTargetsToday trigger. Schedule follows the flag —
  *   burn ON  → ~14:30 (same-day workout flex needs afternoon data)
  *   burn OFF → ~03:00 (TDEE window ends yesterday; no same-day input to wait for)
  * installDailyTrigger replaces any prior trigger on the same handler, so one re-run is enough.
  */
 function createTargetsTrigger() {
-  if (BURN_DELTA_ENABLED) installDailyTrigger("updateTargetsToday", 14, 30);
-  else                    installDailyTrigger("updateTargetsToday", 3, 0);
+  installDailyTrigger("updateTargetsToday", 3, 0);
 }
 
 /** Run ONCE from the editor: nightly ~00:45 rebuild of Tracker + Summary from the form responses. */
