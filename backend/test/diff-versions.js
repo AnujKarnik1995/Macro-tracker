@@ -44,10 +44,17 @@ function trackerRows(D) { return [
   [D('2026-08-06'),'Weigh-in','','','','','','n/a','',''],
   [D('2026-08-06'),'Burn','','','','','','','','oops'],
 ]; }
-const targetsRows = D => [['Macro','Lower','Upper','UnderSeverity','Effective From'],
-  ['Calories',1625,1750,'mild',''],['Protein',145,158,'mild',''],['Carbs',160,170,'mild',''],
-  ['Fat',45,50,'danger',''],['Weight Loss',0.7,0.9,'mild',''],
-  ['Floor',1625,'','',D('2026-08-02')],['Deficit',425,'','',D('2026-08-02')]];
+// Wide Targets: one COMPLETE config snapshot per row, dated by col Q.
+// Row 1 is undated (always applies) and leaves deficit/floor blank, so readTargetConfig() returns
+// null for dates before the first epoch — the shape that keeps pre-diet days banded in the widget
+// without letting the script prescribe a zero deficit. See DESIGN-LOG.md.
+const targetsRows = D => [
+  ['cal low','cal high','pro low','pro high','carb low','carb high','fat low','fat high',
+   'w_delta lower','w_delta upper','deficit','floor',
+   'cal severity','pro severity','carb severity','fat severity','effective from'],
+  [1625,1750,145,158,160,170,45,50, -0.9,-0.7, '','',   'mild','mild','mild','danger', ''],
+  [1625,1750,145,158,160,170,45,50, -0.9,-0.7, 425,1625,'mild','mild','mild','danger', D('2026-08-02')],
+  [1625,1750,145,158,160,170,45,50, -0.9,-0.7, 375,1625,'mild','mild','mild','danger', D('2026-08-09')]];
 
 const DATES = ['2026-07-20','2026-08-01','2026-08-02','2026-08-05','2026-08-08','2026-08-09','2026-09-01'];
 

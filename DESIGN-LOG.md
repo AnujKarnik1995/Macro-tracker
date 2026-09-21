@@ -337,7 +337,7 @@ each refresh, so it self-corrects and never drifts.
 
 # Part 3 — What the widget shows
 
-## 11. Weight page sizes off a window, not off history · updated 2026-08-16
+## 11. Weight page: window, sign convention, dated bands · updated 2026-09-20
 
 The page plotted every week ever logged, so nothing in the layout was bounded and it decayed as the
 cut ran. At the real 420×560 geometry (plot 299.4 × 392.0 px):
@@ -377,6 +377,46 @@ weigh-ins exists with `avg = null` and week-over-week rate is null whenever eith
 *Rejected:* dividing a multi-week loss by the week gap. A 4-week loss ÷ 4 is not a weekly rate — it is
 an average that hides which weeks stalled, and scoring it against a 0.7–0.9 band would still be
 scoring a number nobody measured. A null reads as neutral, which is the honest answer.
+
+### Sign: delta, not loss rate · added 2026-09-20
+
+`WeekWeight.delta`, `WeightSeries.thisWeekDelta`, `TdeeResult.lbPerWeekDelta` and the Targets
+`w_delta` columns are all **scale-signed: negative means lost.** The old convention was
+loss-positive, and it leaked everywhere:
+
+- `WeightRenderer` had to negate it back for display — `signed(-it)` with a comment explaining why.
+- `targetLow` was computed from `upperRate` and `targetHigh` from `lowerRate`, because "more loss"
+  means "lower weight". Two fields in weight units crossed against two in loss units.
+- A band that permits GAIN could not be written without a negative lower bound reading as its
+  opposite — which a maintenance or break phase requires.
+
+Under delta, `targetLow = prevWeekAvg + lowerDelta` and the crossover is gone. The Energy gauge also
+had `rmin = max(0f, lo - 0.4f)`, which silently clipped any gain-permitting band to the left edge;
+its axis is signed now and always contains 0, with a zero tick for reference.
+
+Migration hazard: the sheet's I/J columns invert meaning, so `0.7, 0.9` becomes `-0.9, -0.7`
+(**negate AND swap** — negating reverses the ordering). Rows and code must land together. §14.
+
+### Bands are dated; a blank band is a declared break · added 2026-09-20
+
+`WeightCalculator.series` took ONE `WeightTarget` and judged every week against it, so changing the
+band re-coloured all of history — the hazard `TargetHistory.asOf` prevents for macros, unnoticed
+only because the band had never changed. It now takes a `WeightTargetHistory` and resolves
+`asOf(week.end)`: a week is judged against the band in force when it **ended**.
+
+`DatedWeightTarget.target` is nullable. A dated Targets row with **blank** `w_delta` cells is a
+declared break — a vacation, a travel block — and it still WINS the as-of lookup, so the previous
+band cannot leak through it. The week is left unjudged (`inZone = null`, neutral dot) rather than
+failed, and `targetLow`/`targetHigh` go null so no band is drawn. This deliberately reuses the epoch
+row rather than adding a separate "break periods" concept: two mechanisms for "things change on this
+date" would need a rule for what happens when they overlap.
+
+Consequence to expect: with no band, `bandLb` is 0, so the y-axis span cap
+(`bandLb * plotH / BAND_MIN_PX`) is unbounded and the window-shortening loop never fires. The chart
+zooms differently across a break boundary. Acceptable — there is no band whose legibility to protect.
+
+*Not built:* dashed dividers on page 3 at each epoch boundary. `WeightTargetHistory.entries` already
+carries the dates and the renderer already has the history, so it is a drawing change only.
 
 ---
 
@@ -442,7 +482,7 @@ if the plan changes. `GYM_TOTAL = 0` hides the block.
 
 # Part 4 — Data contracts
 
-## 14. Column positions are frozen · updated 2026-08-23
+## 14. Column positions are frozen · updated 2026-09-20
 
 Both sheets are parsed **by position**, by `Code.gs` and by the widget's `CsvParser` independently. A
 shifted column does not throw — it silently re-scores history against the wrong number. This is the
@@ -472,10 +512,43 @@ columns are derived with `sCol()` from the same constant the read uses, so the t
 
    **The upsert in `Code.gs` is the only guard.** It is an integrity mechanism, not plumbing.
 
+### Targets is ONE WIDE ROW PER CONFIG EPOCH · added 2026-09-20
+
+Targets was row-per-macro, matched by keyword on a name column (`classifyTarget`,
+`MacroType.fromName`). It is now positional like every other tab — **each row is a complete config
+snapshot**, and the row that applies on a date is the one with the greatest `effective from` not
+after it.
+
+```
+A cal lo   B cal hi   C pro lo   D pro hi   E carb lo  F carb hi  G fat lo  H fat hi
+I wl lo    J wl hi    K deficit  L floor
+M cal sev  N pro sev  O carb sev P fat sev  Q effective from
+```
+
+Three things this changed, none of them cosmetic:
+
+1. **Blank is not `0`.** `Number("")` is `0`, and `deficit` is signable (§6) — so `0` is a legitimate
+   value meaning maintenance. A half-filled row collapsing to `0` would silently prescribe
+   maintenance instead of refusing to prescribe. `tgNum()` returns `null` for blank, and
+   `readTargetConfig` returns `null` if any required field is blank.
+2. **The undated pre-history row.** The first row carries the macro bands with a blank date and a
+   blank deficit/floor. Blank date means "always applies", so days logged before the first real epoch
+   are still judged against bands — without it they drop out of `dayIsSuccessful` entirely and the
+   green-day tally silently changes. Blank deficit/floor means `readTargetConfig` still returns
+   `null` for those days, so the controller does not prescribe against a config that did not exist.
+3. **Only protein, fat, deficit and floor are read by the script.** The calorie and carb bands exist
+   for the widget: calories are not graded (§10), and the carb band supplies only the ±half-width
+   that `effectiveTargets` rebuilds around the computed `t_carb` centre (§9). Editing carb lo/hi does
+   **not** move the carb target — that is set by the anchor. This trap is why the pair is kept as
+   lo/hi rather than collapsed to a single half-width column: the widget's band arithmetic reads
+   both, and a single column would have to be re-derived in two places.
+
 ### Confirmed non-constraints
 
-- **Row order is irrelevant.** `TdeeCalculator` and `WeightCalculator` sort; `MacroCalculator` is
-  order-agnostic. Summary does not need sorting.
+- **Row order is irrelevant** in Summary and Tracker. `TdeeCalculator` and `WeightCalculator` sort;
+  `MacroCalculator` is order-agnostic. Summary does not need sorting.
+  **In Targets it is not**: an exact-date tie between two rows is broken by sheet order, later row
+  wins, identically in `readTargetConfig` and `CsvParser.parseTargets`/`parseWeightTarget`.
 - **Blank and `0` are equivalent** in weight (F) — `num("")` → null → treated as 0.
 - **Partial I–L is handled per-macro** by `effectiveTargets`, so the four-cell write need not be
   atomic.

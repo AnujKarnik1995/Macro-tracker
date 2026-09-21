@@ -25,6 +25,12 @@ Compares up to 14 groups: `computeTdee`, `typicalBurn`, `readBurn`, `readTargetC
 Summary contents after 11 write calls, per-date duplicate-row counts, and Summary after
 `rebuildAllSummary`. Each group runs under **two date regimes** (see below).
 
+**`readTargetConfig` will differ against any pre-2026-09-20 baseline, and that is correct.** The
+Targets tab moved from row-per-macro to one wide row per config epoch (DESIGN-LOG.md §14). The runner
+feeds one Targets grid to both versions, so the old parser reads the wide rows as unmatched names and
+returns `null` for every date. `targetConfig`, and the `summaryAfter*` / `duplicateDates` groups
+downstream of it, are expected to move. Every other group must still be identical.
+
 **Fixtures.** `fixtures/summary.csv` is a **synthetic** fixture (no real data). The Tracker fixture is synthetic and
 deliberately nasty — mixed `Date`/string dates in one column, two weigh-ins on one day, two burn
 sessions on one day, a zero weight, and junk text in the cal/weight/burn cells. None of that exists
@@ -114,6 +120,45 @@ Use it to answer "what does the widget actually think?" rather than re-implement
 elsewhere. Re-implementations drift: an earlier Python estimate of the post-repair green-day count
 came out at 32 because it skipped `CsvParser`'s whole-gram rounding and applied static bands to days
 that had computed centres. The real number is 39.
+
+## 3b. Targets format check — `TargetsDriver.kt` (JVM)
+
+```bash
+kotlinc app/src/main/java/com/example/macrowidget/{MacroModel,CsvParser}.kt \
+        backend/test/TargetsDriver.kt -d /tmp/targets
+kotlin -cp /tmp/targets TargetsDriverKt
+```
+
+28 assertions over `parseTargets` and `parseWeightTarget` on the wide format: the undated
+pre-history row applying to any date, as-of resolution picking a whole ROW at each epoch boundary
+(before / on / inside / on the next), the `danger` flag surviving an epoch switch, exact-date ties
+resolving to the later sheet row, future-dated rows ignored until reached, and four degradation
+paths — a short row with the severity and date columns dropped by CSV export, one blank macro not
+taking its siblings down with it, transposed lo/hi normalising, and a header-only sheet.
+
+`parseWeightTarget` is dated now (it takes a `today`); it used to return the first row naming
+"weight" regardless of its Effective From. The epoch assertions are what pin that.
+Exit 0 = all pass. DESIGN-LOG.md §14.
+
+## 3c. Weight sign + dated bands — `WeightDriver.kt` (JVM)
+
+```bash
+kotlinc app/src/main/java/com/example/macrowidget/{MacroModel,CsvParser,WeightCalculator}.kt \\
+        backend/test/WeightDriver.kt -d /tmp/weight
+kotlin -cp /tmp/weight WeightDriverKt
+```
+
+29 assertions over the two things the weight page used to get wrong (DESIGN-LOG.md §11): that
+`delta` is scale-signed (losing 1.0 lb reads −1.0, not +1.0) and that each week is judged against
+the band in force when **that week** ended. The frozen-history section includes a control — the same
+data under a single band, asserting the verdict it WOULD have produced — so the regression cannot
+quietly come back. Also covers declared breaks: a dated row with blank `w_delta` leaves the week
+unjudged instead of failed, and does not let the previous band leak through.
+
+Note `approx()`: `totalDelta` and `targetLow`/`targetHigh` are display-only and never rounded, so
+they carry ~1e-5 lb of float32 drift. `WeekWeight.delta` IS rounded to 0.1 before the zone check and
+is asserted exactly.
+Exit 0 = all pass.
 
 ## 4. Layout test — the Energy page's geometry (JVM)
 

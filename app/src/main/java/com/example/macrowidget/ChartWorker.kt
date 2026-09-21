@@ -60,7 +60,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
 
             val entries = CsvParser.parseLog(csvs.first)
             val targetHistory = CsvParser.parseTargets(csvs.second)
-            val weightTarget = CsvParser.parseWeightTarget(csvs.second)
+            val weightTargets = CsvParser.parseWeightTargets(csvs.second)
             val today = LocalDate.now()
             val page = WidgetPrefs.page(applicationContext, id)
 
@@ -76,7 +76,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
             val todayTargets = todayEntry?.let { MacroCalculator.effectiveTargets(it, targetHistory) } ?: targets
             val weekly = MacroCalculator.weeklyAverage(entries, targetHistory, today)
             val successfulCount = MacroCalculator.successfulDays(entries, targetHistory, today)
-            val weightSeries = WeightCalculator.series(entries, weightTarget, today)
+            val weightSeries = WeightCalculator.series(entries, weightTargets, today)
             val tdeeResult = TdeeCalculator.compute(entries, today)
             val gymStats = GymCalculator.compute(entries, today, GYM_START, GOAL_DATE, GYM_TOTAL)
 
@@ -92,9 +92,9 @@ class ChartWorker(context: Context, params: WorkerParameters) :
 
             // Pages: 0 = Today (macros), 1 = Energy (burn), 2 = Weight.
             val bmp = when (page) {
-                1 -> EnergyRenderer.render(tdeeResult, weightTarget, gymStats, page,
+                1 -> EnergyRenderer.render(tdeeResult, weightTargets.asOf(today), gymStats, page,
                     SheetWidgetProvider.PAGE_COUNT, wPx, hPx)
-                2 -> WeightRenderer.render(weightSeries, weightTarget, page,
+                2 -> WeightRenderer.render(weightSeries, weightTargets, page,
                     SheetWidgetProvider.PAGE_COUNT, wPx, hPx)
                 else -> ChartRenderer.render(
                     today = todayEntry,
@@ -173,7 +173,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
 
     /** Compact fingerprint of the energy page's data, for the render-skip signature. */
     private fun energySignature(t: TdeeResult): String =
-        "${t.tdee}:${t.lbPerWeek}:${t.avgIntake}:${t.windowDays}:${t.collecting}:${t.daysNeeded}"
+        "${t.tdee}:${t.lbPerWeekDelta}:${t.avgIntake}:${t.windowDays}:${t.collecting}:${t.daysNeeded}"
 
     /** Compact fingerprint of the training block. Includes requiredPerWeek because it moves with
      *  the calendar, not just with the data — the page must re-render on a day when nothing was
@@ -191,7 +191,7 @@ class ChartWorker(context: Context, params: WorkerParameters) :
             append(s.weeks.joinToString(",") { "${it.end}:${it.avg}:${it.complete}:${it.inZone}" })
             append('|').append(s.currentDailies.joinToString(",") { "${it.date}:${it.lb}" })
             append('|').append(s.targetLow).append(':').append(s.targetHigh)
-            append('|').append(s.latest).append(':').append(s.totalDelta).append(':').append(s.thisWeekRate)
+            append('|').append(s.latest).append(':').append(s.totalDelta).append(':').append(s.thisWeekDelta)
         }
     }
 

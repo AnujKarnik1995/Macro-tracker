@@ -9,7 +9,7 @@ fun main(args: Array<String>) {
 
     val entries = CsvParser.parseLog(summaryCsv)
     val history = CsvParser.parseTargets(targetsCsv)
-    val wTarget = CsvParser.parseWeightTarget(targetsCsv)
+    val wTargets = CsvParser.parseWeightTargets(targetsCsv)
 
     println("{")
     println("  \"rowsParsed\": ${entries.size},")
@@ -20,13 +20,13 @@ fun main(args: Array<String>) {
     println("  \"greenDays\": $green,")
 
     val t = TdeeCalculator.compute(entries, today)
-    println("  \"tdee\": ${t.tdee}, \"avgIntake\": ${t.avgIntake}, \"lbPerWeek\": ${t.lbPerWeek},")
+    println("  \"tdee\": ${t.tdee}, \"avgIntake\": ${t.avgIntake}, \"lbPerWeekDelta\": ${t.lbPerWeekDelta},")
     println("  \"weighIns\": ${t.weighIns}, \"intakeDays\": ${t.intakeDays}, \"collecting\": ${t.collecting},")
 
-    val ws = WeightCalculator.series(entries, wTarget, today)
-    println("  \"weeks\": ${ws.weeks.size}, \"latest\": ${ws.latest}, \"thisWeekRate\": ${ws.thisWeekRate},")
+    val ws = WeightCalculator.series(entries, wTargets, today)
+    println("  \"weeks\": ${ws.weeks.size}, \"latest\": ${ws.latest}, \"thisWeekDelta\": ${ws.thisWeekDelta},")
     println("  \"weeklyAvgs\": [${ws.weeks.joinToString(","){ it.avg?.let{a->"%.2f".format(a)} ?: "null" }}],")
-    println("  \"weeklyRates\": [${ws.weeks.joinToString(","){ it.rate?.let{r->"%.2f".format(r)} ?: "null" }}],")
+    println("  \"weeklyDeltas\": [${ws.weeks.joinToString(","){ it.delta?.let{r->"%.2f".format(r)} ?: "null" }}],")
     println("  \"weekComplete\": [${ws.weeks.joinToString(","){ it.complete.toString() }}],")
 
     val wk = MacroCalculator.weeklyAverage(entries, history, today)

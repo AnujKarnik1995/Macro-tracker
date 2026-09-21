@@ -85,23 +85,25 @@ object EnergyRenderer {
                 "Avg intake ${String.format("%,d", it.roundToInt())} kcal/day", FAINT)
         }
 
-        val rate = tdee.lbPerWeek
-        val col = colorForRate(rate, band)
-        if (rate != null) drawInBand(c, lay, Slot.RATE, "${fmt1(rate)} lb/wk", col, bold = true)
+        val weekDelta = tdee.lbPerWeekDelta
+        val col = colorForDelta(weekDelta, band)
+        if (weekDelta != null) drawInBand(c, lay, Slot.RATE, "${fmt1(weekDelta)} lb/wk", col, bold = true)
 
-        if (band != null && rate != null) {
-            drawGauge(c, lay, rate, band, col)
-            drawAction(c, lay, tdee, rate, band)
+        if (band != null && weekDelta != null) {
+            drawGauge(c, lay, weekDelta, band, col)
+            drawAction(c, lay, tdee, weekDelta, band)
         }
     }
 
-    private fun drawGauge(c: Canvas, lay: Layout, rate: Float, band: WeightTarget, col: Int) {
-        val lo = band.lowerRate
-        val hi = band.upperRate
-        val rmin = max(0f, lo - 0.4f)
-        // Fixed headroom to ~1.8 lb/wk so a fast week (e.g. 1.3) sits well inside the track instead
-        // of pinned to the right edge; still expands if the band's own upper bound is higher.
-        val rmax = max(hi + 0.4f, 1.8f)
+    private fun drawGauge(c: Canvas, lay: Layout, weekDelta: Float, band: WeightTarget, col: Int) {
+        val lo = band.lowerDelta
+        val hi = band.upperDelta
+        // SIGNED axis that must always contain 0. The old axis started at max(0f, lo - 0.4f), which
+        // silently clipped any band allowing weight GAIN -- a maintenance or break phase such as
+        // (-0.5, +1.5) -- to the left edge. Pad past whichever of band, marker and zero is most
+        // extreme, so losing reads left of centre and gaining right. DESIGN-LOG.md section 11.
+        val rmin = minOf(lo, weekDelta, 0f) - 0.35f
+        val rmax = maxOf(hi, weekDelta, 0f) + 0.35f
 
         val gx0 = lay.gaugeLeft
         val gx1 = lay.gaugeRight
@@ -115,7 +117,10 @@ object EnergyRenderer {
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = AXIS })
         c.drawRoundRect(gx(lo), gy - zh, gx(hi), gy + zh, zh * 0.5f, zh * 0.5f,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = GREEN; alpha = 150 })
-        c.drawCircle(gx(rate), gy, lay.gaugeMarkerR,
+        // Zero tick: on a signed axis there is otherwise no reference for which side is losing.
+        c.drawRect(gx(0f) - th * 0.15f, gy - th, gx(0f) + th * 0.15f, gy + th,
+            Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MUTED })
+        c.drawCircle(gx(weekDelta), gy, lay.gaugeMarkerR,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col })
 
         // Zone edge numbers sit in their own band, so they clear both the gauge and the line below.
@@ -127,22 +132,22 @@ object EnergyRenderer {
         c.drawText(fmt1(hi), gx(hi), ly, lp)
     }
 
-    private fun drawAction(c: Canvas, lay: Layout, tdee: TdeeResult, rate: Float, band: WeightTarget) {
-        val lo = band.lowerRate
-        val hi = band.upperRate
+    private fun drawAction(c: Canvas, lay: Layout, tdee: TdeeResult, weekDelta: Float, band: WeightTarget) {
+        val lo = band.lowerDelta
+        val hi = band.upperDelta
         val mid = (lo + hi) / 2f
-        val req = tdee.intakeForRate(mid)
+        val req = tdee.intakeForDelta(mid)
         val avg = tdee.avgIntake
 
         val text: String
         val color: Int
-        if (round1(rate) in lo..hi || req == null || avg == null) {
+        if (round1(weekDelta) in lo..hi || req == null || avg == null) {
             text = "On target \u00B7 hold here"
             color = GREEN
         } else {
-            val delta = (req - avg).roundToInt()
-            text = "Eat ${signedInt(delta)} kcal/day \u2192 ${fmt1(mid)} lb/wk"
-            color = if (delta >= 0) GREEN else AMBER
+            val kcal = (req - avg).roundToInt()
+            text = "Eat ${signedInt(kcal)} kcal/day \u2192 ${fmt1(mid)} lb/wk"
+            color = if (kcal >= 0) GREEN else AMBER
         }
         drawInBand(c, lay, Slot.ACTION, text, color, bold = true)
     }
@@ -227,13 +232,13 @@ object EnergyRenderer {
         c.drawText(text, lay.cx, lay.band(slot).baselineFor(p.textSize), p)
     }
 
-    /** Green in-zone, amber over-cut (rate > upper), red under-cut (rate < lower), neutral if no band. */
-    private fun colorForRate(rate: Float?, band: WeightTarget?): Int {
-        if (rate == null || band == null) return LINE
-        val r = round1(rate)
+    /** Green in-zone, amber over-cut (delta < lower), red under-cut (delta > upper), neutral if no band. */
+    private fun colorForDelta(weekDelta: Float?, band: WeightTarget?): Int {
+        if (weekDelta == null || band == null) return LINE
+        val d = round1(weekDelta)
         return when {
-            r > band.upperRate -> AMBER
-            r < band.lowerRate -> RED
+            d < band.lowerDelta -> AMBER
+            d > band.upperDelta -> RED
             else -> GREEN
         }
     }

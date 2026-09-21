@@ -208,21 +208,40 @@ date, cal, p, c, f, weight, unused, burn, t_cal, t_pro, t_carb, t_fat, gym
 `gym` is **appended** at col M for the same reason: parsing is positional, so inserting it earlier
 would shift `t_cal`–`t_fat` and silently re-score history.)
 
-**Targets** (rows matched by keyword, so order is flexible; `EffectiveFrom` is optional):
+**Targets** (read **by position**, like Summary — **one wide row per config epoch**, each row a
+complete snapshot):
 ```
-Macro,        Lower, Upper, UnderSeverity, EffectiveFrom
-Calories,     1625,  1750,  mild
-Protein,      145,   158,   mild
-Carbs,        160,   170,   mild
-Fat,          45,    50,    danger
-Weight Loss,  0.7,   0.9,   mild
-Floor,        1625,                          (only Lower is read — anti-starve calorie floor)
-Deficit,      425,                           (only Lower is read — kcal/day deficit to hold)
+A cal low   B cal high   C pro low   D pro high   E carb low  F carb high  G fat low  H fat high
+I w_delta lo  J w_delta hi   K deficit   L floor
+M cal sev   N pro sev    O carb sev  P fat sev    Q effective from
+```
+```
+cal low,cal high,pro low,pro high,carb low,carb high,fat low,fat high,w_delta lower,w_delta upper,deficit,floor,cal severity,pro severity,carb severity,fat severity,effective from
+1625,1750,145,158,160,170,45,50,-0.9,-0.7,,,mild,mild,mild,danger,
+1625,1750,145,158,160,170,45,50,-0.9,-0.7,425,1625,mild,mild,mild,danger,2026-08-02
+1625,1750,145,158,160,170,45,50,-0.9,-0.7,375,1625,mild,mild,mild,danger,2026-08-09
 ```
 
-`Floor` and `Deficit` are required for the dynamic targets to compute; without them `Code.gs` writes
-no per-day targets and the widget falls back to the static bands. To switch the dynamic system on at a chosen date, set that date
-as `EffectiveFrom` on the `Floor` and `Deficit` rows — earlier days stay on the static bands.
+The row that applies on a date is the one with the greatest `effective from` not after it; a blank
+date means "always applies", and an exact-date tie goes to the **later sheet row**. To change one
+dial, copy the whole row down and edit it — that is what keeps past days judged against the config
+that was actually in force.
+
+`deficit` and `floor` are required before `Code.gs` will compute per-day targets. The first row
+above deliberately leaves them blank: it carries the bands back to the beginning of the log (so early
+days are still graded) while the controller stays off until the first dated epoch. `deficit` is
+**signable** — negative is a surplus, for a bulk.
+
+`w_delta` is **scale-signed: negative means losing.** A cut band is `-0.9, -0.7`; a maintenance or
+break band may straddle zero, e.g. `-0.5, 1.5`. Leaving both cells **blank on a dated row** declares
+a break — a vacation or travel block: that week is left unjudged rather than failed, no band is
+drawn, and the previous band does not leak through. DESIGN-LOG.md §11.
+
+**Editing `carb low`/`carb high` does not move your carb target.** Carbs are the plug: the target
+centre is computed from the anchor (`t_carb` in Summary col K), and the carb band here supplies only
+the ±half-width the widget draws around it. Same for the calorie band — calories are never graded.
+Protein and fat are the two whose bands really are inputs, since `Code.gs` takes its centres from
+their midpoints. DESIGN-LOG.md §14.
 
 Publish each tab: **File → Share → Publish to web → that tab → CSV → Publish**, and copy each
 link (`.../pub?gid=...&single=true&output=csv`).

@@ -1,6 +1,11 @@
 # Proposal: a `Config` sheet
 
-**Status: proposal. No code changed yet.**
+**Status: proposal, PARTLY SUPERSEDED 2026-09-20.** The "decisive constraint" below — that substring
+row-name matching makes new `Targets` rows dangerous — no longer holds: `Targets` moved to one wide
+row per config epoch, read by position, and both `classifyTarget()` and `MacroType.fromName()` are
+gone (DESIGN-LOG.md §14). A `Config` sheet may still be worth building for the reasons in "Why a
+separate sheet costs nothing" onward, but it is no longer forced by a naming landmine. The split
+table below is also stale: `Targets` is now bands **plus** `deficit`/`floor` on the same row.
 
 Goal: make phase, deadlines, and every personal number configurable — tunable by a human or an AI
 agent, safe for a stranger to self-host — without breaking the current widget contract.

@@ -19,16 +19,17 @@ import kotlin.math.round
 data class TdeeResult(
     val tdee: Float?,        // kcal/day; null while still collecting data
     val avgIntake: Float?,   // kcal/day, window mean of days that logged calories
-    val lbPerWeek: Float?,   // measured loss rate over the window (+ = losing)
+    val lbPerWeekDelta: Float?, // measured weekly weight CHANGE over the window (− = losing)
     val windowDays: Int,     // span actually covered (first..last weigh-in), inclusive
     val weighIns: Int,       // weigh-ins used in the regression
     val intakeDays: Int,     // days with a calorie total
     val collecting: Boolean, // true when below the minimum-data bar
     val daysNeeded: Int      // rough days still needed before ready (0 when ready)
 ) {
-    /** The intake that would produce [ratePerWeek] lb/wk of loss at this TDEE. */
-    fun intakeForRate(ratePerWeek: Float): Float? =
-        tdee?.let { round(it - ratePerWeek * KCAL_PER_LB / 7f) }
+    /** The intake that would produce [deltaPerWeek] lb/wk of weight CHANGE at this TDEE.
+     *  Scale-signed: pass -0.8 for losing 0.8 lb/wk, +0.5 for gaining half a pound. */
+    fun intakeForDelta(deltaPerWeek: Float): Float? =
+        tdee?.let { round(it + deltaPerWeek * KCAL_PER_LB / 7f) }
 
     companion object {
         const val KCAL_PER_LB = 3500f
@@ -100,9 +101,9 @@ object TdeeCalculator {
         val slopePerDay = slopeLbPerDay(weights)                       // lb/day, negative = losing
         val avgIntake = intakes.map { it.second }.average().toFloat()
         val tdee = round(avgIntake - slopePerDay * KCAL_PER_LB)        // whole kcal
-        val lbPerWeek = round(-slopePerDay * 7f * 10f) / 10f           // 0.1 lb/wk, + = losing
+        val weeklyDelta = round(slopePerDay * 7f * 10f) / 10f          // 0.1 lb/wk, − = losing
 
-        return TdeeResult(tdee, round(avgIntake), lbPerWeek, spanDays, weighIns, intakeDays, false, 0)
+        return TdeeResult(tdee, round(avgIntake), weeklyDelta, spanDays, weighIns, intakeDays, false, 0)
     }
 
     private fun avgOrNull(intakes: List<Pair<LocalDate, Float>>): Float? =

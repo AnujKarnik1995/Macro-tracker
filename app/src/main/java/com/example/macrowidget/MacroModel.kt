@@ -3,19 +3,11 @@ package com.example.macrowidget
 import java.time.LocalDate
 
 /** The four macros, in the same column order as the Log tab. */
-enum class MacroType(val label: String, val unit: String, val keywords: List<String>) {
-    CALORIES("Cals", "", listOf("cal")),
-    PROTEIN("Pro", "g", listOf("prot")),
-    CARBS("Carb", "g", listOf("carb")),
-    FAT("Fat", "g", listOf("fat"));
-
-    companion object {
-        /** Match a Targets-tab row name to a macro by keyword (header text is messy). */
-        fun fromName(raw: String): MacroType? {
-            val s = raw.lowercase()
-            return entries.firstOrNull { m -> m.keywords.any { s.contains(it) } }
-        }
-    }
+enum class MacroType(val label: String, val unit: String) {
+    CALORIES("Cals", ""),
+    PROTEIN("Pro", "g"),
+    CARBS("Carb", "g"),
+    FAT("Fat", "g")
 }
 
 /** A target band for one macro. underDanger = being below lower is dangerous (e.g. fat). */
@@ -60,8 +52,49 @@ data class TargetHistory(val byMacro: Map<MacroType, List<DatedTarget>>) {
     companion object { val EMPTY = TargetHistory(emptyMap()) }
 }
 
-/** Acceptable weekly weight-loss rate band (lb/week), from the Targets "Weight" row. */
-data class WeightTarget(val lowerRate: Float, val upperRate: Float)
+/**
+ * Acceptable weekly weight-CHANGE band (lb/week), from the Targets `w_delta` columns (I-J).
+ *
+ * SIGN: a DELTA, not a loss rate — **negative means losing**, positive means gaining, matching
+ * what the scale does. A cut band is `(-1.10, -0.95)`; a maintenance or break band may straddle
+ * zero, e.g. `(-0.5, 1.5)`. The old loss-positive convention forced a negation in the renderer
+ * and crossed `targetLow`/`targetHigh` against `lower`/`upper`. DESIGN-LOG.md §11.
+ */
+data class WeightTarget(val lowerDelta: Float, val upperDelta: Float)
+
+/**
+ * A weight-change band tagged with the date it took effect.
+ *
+ * [target] is NULL for an epoch that deliberately has no band — a declared break or vacation,
+ * entered as a dated row with blank `w_delta` cells. That is distinct from having no row at all:
+ * a null-band row still WINS the as-of lookup, so the previous band does not leak through it.
+ */
+data class DatedWeightTarget(val effectiveFrom: LocalDate, val target: WeightTarget?)
+
+/**
+ * Full history of weight-change bands, so a week is judged against the band in force when that
+ * week ENDED rather than against whatever is current now.
+ *
+ * Without this, changing the band re-colours every past week on the chart — the same hazard
+ * [TargetHistory] exists to prevent for macros, which went unnoticed only because the band had
+ * never changed before. DESIGN-LOG.md §11.
+ */
+data class WeightTargetHistory(val entries: List<DatedWeightTarget>) {
+
+    /** Band in force on [date]: greatest effectiveFrom not after it, later sheet row winning a tie. */
+    fun asOf(date: LocalDate): WeightTarget? {
+        var best: DatedWeightTarget? = null
+        for (e in entries) {
+            if (e.effectiveFrom.isAfter(date)) continue
+            if (best == null || !e.effectiveFrom.isBefore(best.effectiveFrom)) best = e
+        }
+        return best?.target
+    }
+
+    val isEmpty: Boolean get() = entries.isEmpty()
+
+    companion object { val EMPTY = WeightTargetHistory(emptyList()) }
+}
 
 /**
  * One row of the daily Log. `weight` is the day's body weight (lb), null if none logged.

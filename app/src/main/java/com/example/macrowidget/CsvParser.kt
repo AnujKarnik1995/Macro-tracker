@@ -38,6 +38,27 @@ object CsvParser {
         return null
     }
 
+    /** One macro's three columns on the wide Targets row. */
+    private data class MacroCols(val macro: MacroType, val lo: Int, val hi: Int, val sev: Int)
+
+    /**
+     * Targets tab is ONE WIDE ROW PER CONFIG EPOCH, fixed by position (no name column, no keyword
+     * matching). Must stay in step with Code.gs `TG`:
+     *
+     *   A-B cal lo/hi   C-D pro lo/hi   E-F carb lo/hi   G-H fat lo/hi
+     *   I-J weight-loss lo/hi           K deficit        L floor
+     *   M-P under-severity (cal/pro/carb/fat)            Q effective from
+     */
+    private val MACRO_COLS = listOf(
+        MacroCols(MacroType.CALORIES, 0, 1, 12),
+        MacroCols(MacroType.PROTEIN,  2, 3, 13),
+        MacroCols(MacroType.CARBS,    4, 5, 14),
+        MacroCols(MacroType.FAT,      6, 7, 15)
+    )
+    private const val TG_WL_LO = 8
+    private const val TG_WL_HI = 9
+    private const val TG_EFFECTIVE_FROM = 16
+
     /**
      * Summary tab. Columns by position:
      *   A date, B Cal, C Protein, D Carbs, E Fat, F weight, G unused (always blank), H burn,
@@ -78,42 +99,55 @@ object CsvParser {
         }
     }
 
-    /** Weekly weight-loss target band (lb/week), from the Targets row whose name contains
-     *  "weight" (e.g. "Weight Loss, 0.7, 0.9"). Null if there's no such row. */
-    fun parseWeightTarget(csv: String): WeightTarget? {
+    /**
+     * Weight-change bands from cols I-J, one per config epoch, tagged with the row's Effective
+     * From (col Q). Kept in sheet order so [WeightTargetHistory.asOf]'s exact-date tie-break
+     * (later sheet row wins) matches [TargetHistory.asOf].
+     *
+     * Returns the whole history, not one band: the weight page judges each week against the band
+     * in force when that week ended. DESIGN-LOG.md §11.
+     */
+    fun parseWeightTargets(csv: String): WeightTargetHistory {
         val all = rows(csv)
-        if (all.size <= 1) return null
+        if (all.size <= 1) return WeightTargetHistory.EMPTY
+        val out = ArrayList<DatedWeightTarget>()
         for (cols in all.drop(1)) {
-            if (cols.size < 3) continue
-            if (!cols[0].lowercase().contains("weight")) continue
-            val lo = num(cols[1]) ?: continue
-            val up = num(cols[2]) ?: continue
-            return WeightTarget(minOf(lo, up), maxOf(lo, up))
+            val eff = cols.getOrNull(TG_EFFECTIVE_FROM)?.let { parseDate(it) } ?: LocalDate.MIN
+            val lo = cols.getOrNull(TG_WL_LO)?.let { num(it) }
+            val up = cols.getOrNull(TG_WL_HI)?.let { num(it) }
+            // Blank w_delta on a dated row is a DECLARED BREAK, not a row to skip: it is emitted
+            // with a null band so it still wins the as-of lookup and the previous band cannot leak
+            // through. Skipping it here would silently apply the cut's band to a vacation.
+            val band = if (lo != null && up != null) WeightTarget(minOf(lo, up), maxOf(lo, up)) else null
+            out.add(DatedWeightTarget(eff, band))
         }
-        return null
+        return WeightTargetHistory(out)
     }
 
     /**
-     * Targets tab. Columns by position: Macro, Lower, Upper, UnderSeverity(optional),
-     * EffectiveFrom(optional, col E). Header row skipped. Rows matched to macros by keyword,
-     * so order is flexible, and a macro may appear on multiple rows with different
-     * EffectiveFrom dates — each day is later judged against the band in effect on that day.
-     * A row with no (or unparseable) EffectiveFrom defaults to [LocalDate.MIN], i.e. it always
-     * applies, so a sheet without the column behaves exactly as the old single-band version.
+     * Targets tab → full band history. Each row is a COMPLETE config snapshot read by position
+     * ([MACRO_COLS]), contributing one [DatedTarget] per macro, all sharing that row's Effective
+     * From (col Q). A row with no (or unparseable) date defaults to [LocalDate.MIN] and therefore
+     * always applies — that is what keeps days logged before the first dated epoch judged against
+     * bands instead of silently dropping out of the success check.
+     *
+     * Rows are appended in sheet order, so [TargetHistory.asOf]'s exact-date tie-break (later sheet
+     * row wins) still holds. A macro whose lo/hi cells are blank on a row is skipped for that row
+     * only, so a partially filled epoch degrades per-macro rather than failing the whole row.
      */
     fun parseTargets(csv: String): TargetHistory {
         val all = rows(csv)
         if (all.size <= 1) return TargetHistory.EMPTY
         val map = LinkedHashMap<MacroType, MutableList<DatedTarget>>()
         for (cols in all.drop(1)) {
-            if (cols.size < 3) continue
-            val macro = MacroType.fromName(cols[0]) ?: continue
-            val lower = num(cols[1]) ?: continue
-            val upper = num(cols[2]) ?: continue
-            val danger = cols.getOrNull(3)?.lowercase()?.contains("danger") == true
-            val eff = cols.getOrNull(4)?.let { parseDate(it) } ?: LocalDate.MIN
-            val target = Target(minOf(lower, upper), maxOf(lower, upper), danger)
-            map.getOrPut(macro) { mutableListOf() }.add(DatedTarget(eff, target))
+            val eff = cols.getOrNull(TG_EFFECTIVE_FROM)?.let { parseDate(it) } ?: LocalDate.MIN
+            for (m in MACRO_COLS) {
+                val lower = cols.getOrNull(m.lo)?.let { num(it) } ?: continue
+                val upper = cols.getOrNull(m.hi)?.let { num(it) } ?: continue
+                val danger = cols.getOrNull(m.sev)?.lowercase()?.contains("danger") == true
+                val target = Target(minOf(lower, upper), maxOf(lower, upper), danger)
+                map.getOrPut(m.macro) { mutableListOf() }.add(DatedTarget(eff, target))
+            }
         }
         return TargetHistory(map)
     }

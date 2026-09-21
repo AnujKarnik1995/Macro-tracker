@@ -1,2 +1,4 @@
 cal low,cal high,pro low,pro high,carb low,carb high,fat low,fat high,w_delta lower,w_delta upper,deficit,floor,cal severity,pro severity,carb severity,fat severity,effective from
 1200,2000,120,150,150,220,40,55,-0.9,-0.7,,,,,,danger,
+1300,1900,130,155,160,210,42,52,-1.0,-0.8,425,1625,,,,danger,2026-08-02
+1350,1850,135,158,165,205,44,50,,,375,1625,,,,danger,2026-08-09

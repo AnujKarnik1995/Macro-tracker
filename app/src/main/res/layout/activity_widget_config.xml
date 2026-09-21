@@ -16,7 +16,7 @@
         android:inputType="textUri" />
 
     <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:text="Targets CSV URL (Macro, Lower, Upper, UnderSeverity)" android:textStyle="bold"
+        android:text="Targets CSV URL (one wide row per config epoch)" android:textStyle="bold"
         android:paddingTop="16dp" android:paddingBottom="4dp" />
     <EditText android:id="@+id/targets_field" android:layout_width="match_parent"
         android:layout_height="wrap_content" android:hint="https://docs.google.com/.../pub?gid=123&amp;single=true&amp;output=csv"

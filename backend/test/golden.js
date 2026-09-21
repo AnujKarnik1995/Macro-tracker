@@ -43,10 +43,15 @@ function respGrid(file) {
     return [m ? sheetsDate(m[3] + '-' + m[2] + '-' + m[1], TZ) : r[0], r[1]]; });
 }
 const H = ['date','cal','p','c','f','weight','unused','burn','t_cal','t_pro','t_carb','t_fat'];
+// Header only — no config rows, so readTargetConfig() returns null and updateDailyTargets() skips.
+// That is deliberate: golden.js proves the Tracker→Summary rebuild, not the target controller.
+const TARGETS_HEADER = ['cal low','cal high','pro low','pro high','carb low','carb high','fat low','fat high',
+  'w_delta lower','w_delta upper','deficit','floor',
+  'cal severity','pro severity','carb severity','fat severity','effective from'];
 
 function run(codePath, mode) {
   const sheetData = { Summary: grid(SUMMARY, 12, true), Tracker: grid(TRACKER, 10, true),
-                      Targets: [['Macro','Lower','Upper']] };
+                      Targets: [TARGETS_HEADER] };
   if (RESPONSES) sheetData['Form responses 1'] = respGrid(RESPONSES);
   const { api, sheets, fmt } = loadCodeGs(codePath, sheetData, TZ);
   if (mode === 'fromResponses') api.rebuildTrackerFromResponses(); else api.rebuildAllSummary();

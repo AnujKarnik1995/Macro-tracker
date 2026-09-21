@@ -2,8 +2,9 @@
 const TRACKER_TAB = "Tracker";            // raw log: meals (A-G), weigh-ins (H); J reserved/blank
 const SUMMARY_TAB = "Summary";            // STATIC daily totals the widget reads
 const RESPONSES_TAB = "Form responses 1"; // raw Google Form submissions (true source of truth)
-const TARGETS_TAB = "Targets";            // CONFIG the widget reads: macro bands + weight band + Floor + Deficit,
-                                          // dated via an EffectiveFrom column (col E). Change name here if yours differs.
+const TARGETS_TAB = "Targets";            // CONFIG the widget reads. ONE WIDE ROW PER CONFIG EPOCH: every row is a
+                                          // COMPLETE snapshot (all macro bands + weight band + Deficit + Floor + severities),
+                                          // dated by a single Effective From (col Q). Change name here if yours differs.
 
 // Tracker columns:  A date(0) B meal(1) C details(2) D cal(3) E p(4) F c(5) G f(6) H weight(7) I unused(8) J burn(9)
 //                   K gym(10)  <- session label "A"/"B" for a completed strength session
@@ -28,8 +29,12 @@ const S = Object.freeze({          // Summary
 const T = Object.freeze({          // Tracker
   DATE: 0, MEAL: 1, DETAILS: 2, CAL: 3, P: 4, C: 5, F: 6, WEIGHT: 7, UNUSED: 8, BURN: 9, GYM: 10   // UNUSED, BURN: blank
 });
-const TG = Object.freeze({         // Targets
-  NAME: 0, LOWER: 1, UPPER: 2, SEVERITY: 3, EFFECTIVE_FROM: 4
+const TG = Object.freeze({         // Targets (wide: one complete config snapshot per row)
+  // A-H macro bands        I-J weight-loss band   K-L energy      M-P under-severity    Q date
+  CAL_LO: 0,  CAL_HI: 1,    WL_LO: 8,  WL_HI: 9,   DEFICIT: 10,    CAL_SEV: 12,          EFFECTIVE_FROM: 16,
+  PRO_LO: 2,  PRO_HI: 3,                           FLOOR: 11,      PRO_SEV: 13,
+  CARB_LO: 4, CARB_HI: 5,                                          CARB_SEV: 14,
+  FAT_LO: 6,  FAT_HI: 7,                                           FAT_SEV: 15
 });
 const R = Object.freeze({          // Form responses 1
   TIMESTAMP: 0, PAYLOAD: 1
@@ -690,45 +695,55 @@ function windowRows(src, dateStr) {
 }
 
 /**
- * Reads the dated config from the Targets tab as-of `dateStr` (latest EffectiveFrom ≤ date, col E;
- * blank date = always applies). Needs protein + fat band rows plus `Floor` and `Deficit` rows.
- * Protein/fat centers come from their existing bands; deficit is signable (negative = surplus for
- * a future bulk). Returns null if any required row is missing.
+ * A Targets cell as a number, or null when BLANK. Blank must not collapse to 0: `deficit` is
+ * signable and 0 is a legitimate value (maintenance), so `Number("") === 0` would turn a
+ * half-filled row into a silent maintenance prescription. §14.
+ */
+function tgNum(v) {
+  if (v === "" || v === null || v === undefined) return null;
+  const n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+/**
+ * Reads the config in effect on `dateStr` from the Targets tab.
+ *
+ * Every row is a COMPLETE config snapshot; the one that applies is the row with the greatest
+ * Effective From (col Q) that is not after `dateStr`, with a later sheet row winning an exact-date
+ * tie. A blank date means "always applies", which is how the pre-history row keeps the macro bands
+ * in force for days logged before the first dated epoch.
+ *
+ * Only protein, fat, Deficit and Floor are read here — calorie and carb bands are not targets the
+ * script prescribes against (carbs are the plug in updateDailyTargets; the carb band supplies only
+ * the widget's half-width). Returns null when the winning row leaves any required field blank, which
+ * is what makes an undated macro-bands-only row skip target computation instead of prescribing a
+ * zero deficit.
  */
 function readTargetConfig(ss, dateStr) {
   const sh = ss.getSheetByName(TARGETS_TAB);
   if (!sh) return null;
-  const rows = sh.getDataRange().getValues();   // A name, B lower, C upper, D severity, E EffectiveFrom
-  const pick = {};
+  const rows = sh.getDataRange().getValues();
+  let best = null, bestEff = null;
   for (let i = 1; i < rows.length; i++) {
-    const key = classifyTarget(rows[i][TG.NAME]);
-    if (!key) continue;
     const eff = normDate(rows[i][TG.EFFECTIVE_FROM]) || "0000-00-00";   // blank = always applies
-    if (eff > dateStr) continue;                         // future row, not yet in effect
-    if (!pick[key] || eff >= pick[key].eff) {
-      pick[key] = { lower: Number(rows[i][TG.LOWER]), upper: Number(rows[i][TG.UPPER]), eff: eff };
-    }
+    if (eff > dateStr) continue;                                        // future row, not yet in effect
+    // >= keeps the later sheet row on an exact-date tie (iteration is in sheet order)
+    if (best === null || eff >= bestEff) { best = rows[i]; bestEff = eff; }
   }
-  const p = pick.protein, f = pick.fat, fl = pick.floor, de = pick.deficit;
-  if (!p || !f || !fl || !de) return null;
-  if (isNaN(p.lower) || isNaN(p.upper) || isNaN(f.lower) || isNaN(f.upper) ||
-      isNaN(fl.lower) || isNaN(de.lower)) return null;
-  return {
-    pCenter: (p.lower + p.upper) / 2,
-    fCenter: (f.lower + f.upper) / 2,
-    floor: fl.lower,
-    deficit: de.lower
-  };
-}
+  if (!best) return null;
 
-/** Maps a Targets row name to a config key. Weight/carb/other rows return null (unused here). */
-function classifyTarget(raw) {
-  const s = String(raw).toLowerCase();
-  if (s.indexOf("prot") >= 0) return "protein";
-  if (s.indexOf("fat") >= 0) return "fat";
-  if (s.indexOf("floor") >= 0) return "floor";
-  if (s.indexOf("deficit") >= 0) return "deficit";
-  return null;
+  const pLo = tgNum(best[TG.PRO_LO]), pHi = tgNum(best[TG.PRO_HI]);
+  const fLo = tgNum(best[TG.FAT_LO]), fHi = tgNum(best[TG.FAT_HI]);
+  const floor = tgNum(best[TG.FLOOR]), deficit = tgNum(best[TG.DEFICIT]);
+  if (pLo === null || pHi === null || fLo === null || fHi === null ||
+      floor === null || deficit === null) return null;
+
+  return {
+    pCenter: (pLo + pHi) / 2,
+    fCenter: (fLo + fHi) / 2,
+    floor: floor,
+    deficit: deficit
+  };
 }
 
 /** Least-squares slope of y vs x for [[x,y],...]. */

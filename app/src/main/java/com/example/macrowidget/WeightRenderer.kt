@@ -12,7 +12,7 @@ import kotlin.math.min
 /**
  * Draws the weight page: a weekly-average weight trend (left axis), the current week's daily
  * weigh-ins placed on their own day-of-week columns, and a single green target band anchored at
- * the current week's target (last week's avg − 0.7 to − 0.9), edges labeled 0.7 / 0.9. Each
+ * the current week's target (last week's avg plus the w_delta band), edges labeled with it. Each
  * completed week's dot is colored by how its loss rate landed: green = in-zone, yellow =
  * over-cut, red = under-cut. Footer = page dots + refresh.
  *
@@ -35,8 +35,8 @@ object WeightRenderer {
     private val LINE = Color.parseColor("#ECEFF3")
     private val GREEN = Color.parseColor("#15CF92")
     private val GREEN_BRIGHT = Color.parseColor("#1FE3A6")
-    private val AMBER = Color.parseColor("#FFB300")   // over-cut (rate > upper): losing faster than target
-    private val RED = Color.parseColor("#FF5A5A")      // under-cut (rate < lower): losing slower than target
+    private val AMBER = Color.parseColor("#FFB300")   // over-cut (delta < lower): losing faster than target
+    private val RED = Color.parseColor("#FF5A5A")      // under-cut (delta > upper): losing slower, or gaining
     private val AXIS = Color.parseColor("#2B2B2B")
     private val CARD = Color.parseColor("#181818")   // for "hollow" pending point
 
@@ -62,7 +62,7 @@ object WeightRenderer {
 
     fun render(
         series: WeightSeries,
-        target: WeightTarget?,
+        history: WeightTargetHistory?,
         page: Int,
         pageCount: Int,
         widthPx: Int,
@@ -102,7 +102,7 @@ object WeightRenderer {
         // is what lets the plot below show only a recent window.
         val sub = StringBuilder()
         series.latest?.let { sub.append(fmt1(it)).append(" lb") }
-        series.thisWeekRate?.let { sub.append("  ·  this wk ").append(signed(-it)) }  // rate>0 = loss = shows "−"
+        series.thisWeekDelta?.let { sub.append("  ·  this wk ").append(signed(it)) }   // already scale-signed
         series.totalDelta?.let { sub.append("  ·  ").append(signed(it)).append(" total") }
         c.drawText(sub.toString(), (left + right) / 2f, padV + titleSize + subSize * 1.5f,
             Paint(Paint.ANTI_ALIAS_FLAG).apply { color = MUTED; textSize = subSize; textAlign = Paint.Align.CENTER })
@@ -212,7 +212,7 @@ object WeightRenderer {
         }
 
         // ===== weekly points + value labels =====
-        // Dot color by how the week's loss rate lands vs the target band:
+        // Dot color by how the week's delta lands vs the band in force that week:
         //   in-zone → green, over-cut (rate > upper) → yellow, under-cut (rate < lower) → red,
         //   first week / week after a gap / no target → neutral.
         // Labels are packed newest-first and dropped as soon as one would touch its neighbour —
@@ -241,7 +241,8 @@ object WeightRenderer {
                     style = Paint.Style.STROKE; strokeWidth = 2f; color = LINE
                 })
             } else {
-                val col = weekColor(wk, target)
+                // Each week against the band in force on ITS end date — not today's band.
+                val col = weekColor(wk, history?.asOf(wk.end))
                 c.drawCircle(px, py, ptR, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = col })
                 if (i in labelled) {
                     labelP.color = col
@@ -301,15 +302,16 @@ object WeightRenderer {
         return hi - lo
     }
 
-    /** Dot color for a completed week: green in-zone, yellow over-cut, red under-cut, neutral if
-     *  there's no rate to judge (first week, the week after a gap, or no target). */
-    private fun weekColor(wk: WeekWeight, target: WeightTarget?): Int {
-        val rate = wk.rate ?: return LINE
-        if (target == null) return LINE
+    /** Dot color for a completed week: green in-zone, amber over-cut, red under-cut, neutral if
+     *  there's no delta to judge (first week, the week after a gap, or no band that week).
+     *  [band] is the one in force when the week ENDED, so history never re-colours. */
+    private fun weekColor(wk: WeekWeight, band: WeightTarget?): Int {
+        val delta = wk.delta ?: return LINE
+        if (band == null) return LINE
         return when {
-            rate > target.upperRate -> AMBER   // lost more than the band's top → cutting harder
-            rate < target.lowerRate -> RED      // lost less than the band's bottom → under-cutting
-            else -> GREEN                        // inside the band
+            delta < band.lowerDelta -> AMBER   // more negative than the floor → losing faster than target
+            delta > band.upperDelta -> RED     // above the ceiling → losing too slowly, or gaining
+            else -> GREEN                       // inside the band
         }
     }
 
